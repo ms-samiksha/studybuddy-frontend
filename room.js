@@ -1,8 +1,5 @@
 import { db, auth } from './firebase.js';
-import {
-  collection, addDoc, onSnapshot, query, orderBy,
-  serverTimestamp, doc, deleteDoc, getDoc, setDoc, getDocs
-} from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js';
+import { collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, doc, deleteDoc, getDoc, setDoc, getDocs } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js';
 import { getAuth, signOut } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js';
 
 const urlParams = new URLSearchParams(window.location.search);
@@ -12,7 +9,6 @@ if (!roomId) {
   window.location.href = './room-list.html';
 }
 
-// DOM elements
 const leaveRoomButton = document.getElementById('leave-room');
 const chatMessages = document.getElementById('chat-messages');
 const chatInput = document.getElementById('chat-input');
@@ -29,16 +25,16 @@ const videoTab = document.getElementById('video-tab');
 const videoGrid = document.getElementById('video-grid');
 const localVideo = document.getElementById('local-video');
 
-// WebRTC
+// WebRTC variables
 let localStream = null;
 let peerConnections = {};
 let isVideoCallActive = false;
 let isVideoEnabled = false;
 let isAudioEnabled = false;
 let pinnedVideo = null;
-
 const socket = io('https://studybuddy-backend-57xt.onrender.com');
 
+// WebRTC configuration
 const rtcConfig = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -50,79 +46,26 @@ const rtcConfig = {
   ]
 };
 
-// UI Defaults
+// Initially show only chat
 chatSection.style.display = 'block';
 videoCallSection.style.display = 'none';
 
-// ========== UI Events ==========
-
-chatTab.addEventListener('click', () => {
-  chatSection.style.display = 'block';
-  videoCallSection.style.display = 'none';
-});
-
-videoTab.addEventListener('click', () => {
-  chatSection.style.display = 'none';
-  videoCallSection.style.display = 'block';
-});
-
-backToChatBtn.addEventListener('click', () => {
-  chatSection.style.display = 'block';
-  videoCallSection.style.display = 'none';
-});
-
-leaveCallBtn.addEventListener('click', stopVideoCall);
-toggleVideoBtn.addEventListener('click', toggleVideo);
-toggleAudioBtn.addEventListener('click', toggleAudio);
-leaveRoomButton.addEventListener('click', leaveRoom);
-sendMessage.addEventListener('click', sendChatMessage);
-
-// ========== Chat ==========
-
-const chatRef = collection(db, 'rooms', roomId, 'messages');
-const chatQuery = query(chatRef, orderBy('timestamp'));
-
-onSnapshot(chatQuery, (snapshot) => {
-  chatMessages.innerHTML = '';
-  snapshot.forEach((doc) => {
-    const msg = doc.data();
-    const msgElement = document.createElement('div');
-    msgElement.className = 'chat-message';
-    msgElement.innerHTML = `<strong>${msg.sender}</strong>: ${msg.text}`;
-    chatMessages.appendChild(msgElement);
-  });
-  chatMessages.scrollTop = chatMessages.scrollHeight;
-});
-
-async function sendChatMessage() {
-  const message = chatInput.value.trim();
-  if (message === '') return;
-
-  await addDoc(chatRef, {
-    text: message,
-    sender: auth.currentUser.displayName || `User_${auth.currentUser.uid.substring(0, 5)}`,
-    timestamp: serverTimestamp()
-  });
-
-  chatInput.value = '';
-}
-
-// ========== Video Grid Layout ==========
-
+// Dynamic video grid layout
 function updateVideoGridLayout(participantCount) {
   console.log(`Updating grid for ${participantCount} participants`);
   const columns = Math.min(Math.ceil(Math.sqrt(participantCount)), 3);
   const rows = Math.ceil(participantCount / columns);
   videoGrid.style.gridTemplateColumns = `repeat(${columns}, 1fr)`;
   videoGrid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
-  videoGrid.style.height = `${(80 / rows) * 0.9}vh`;
+  videoGrid.style.height = `${(80 / rows) * 0.9}vh`; // Dynamic height based on rows
   if (pinnedVideo) {
     videoGrid.style.gridTemplateColumns = '1fr';
     videoGrid.style.gridTemplateRows = '1fr';
-    videoGrid.style.height = '80vh';
+    videoGrid.style.height = '80vh'; // Full height for pinned video
   }
 }
 
+// Pin video
 function pinVideo(videoElement) {
   if (pinnedVideo === videoElement) {
     videoElement.classList.remove('pinned');
@@ -135,8 +78,31 @@ function pinVideo(videoElement) {
   updateVideoGridLayout(Object.keys(peerConnections).length + 1);
 }
 
-// ========== WebRTC Setup ==========
+// Function to leave the room
+async function leaveRoom() {
+  if (!auth.currentUser) {
+    alert('Please log in to leave the room.');
+    return;
+  }
 
+  const confirmLeave = confirm('Are you sure you want to leave the room?');
+  if (!confirmLeave) return;
+
+  const userId = auth.currentUser.uid;
+  try {
+    const memberRef = doc(db, 'rooms', roomId, 'room_members', userId);
+    await deleteDoc(memberRef);
+    socket.emit('leave-room', { roomId, userId });
+    stopVideoCall();
+    alert('You have left the room.');
+    window.location.href = './room-list.html';
+  } catch (error) {
+    console.error('Error leaving room:', error);
+    alert('Failed to leave room.');
+  }
+}
+
+// Initialize WebRTC
 async function startVideoCall() {
   if (isVideoCallActive) return;
 
@@ -151,7 +117,6 @@ async function startVideoCall() {
     leaveCallBtn.disabled = false;
 
     localVideo.addEventListener('click', () => pinVideo(localVideo));
-
     let localLabel = localVideo.nextElementSibling;
     if (!localLabel || localLabel.className !== 'video-label') {
       localLabel = document.createElement('div');
@@ -197,7 +162,7 @@ async function startVideoCall() {
     });
 
     socket.on('connect_error', () => {
-      alert('Failed to connect to signaling server.');
+      alert('Failed to connect to signaling server. Please try again later.');
       stopVideoCall();
     });
 
@@ -219,7 +184,7 @@ async function startVideoCall() {
     updateVideoGridLayout(1);
   } catch (error) {
     console.error('Error starting video call:', error);
-    alert('Camera access error.');
+    alert('Failed to access camera. Please allow camera access or check device.');
     stopVideoCall();
   }
 }
@@ -249,20 +214,6 @@ function stopVideoCall() {
   updateVideoGridLayout(1);
 }
 
-function toggleVideo() {
-  if (!localStream) return;
-  isVideoEnabled = !isVideoEnabled;
-  localStream.getVideoTracks().forEach(track => track.enabled = isVideoEnabled);
-  toggleVideoBtn.textContent = isVideoEnabled ? 'Camera Off' : 'Camera On';
-}
-
-function toggleAudio() {
-  if (!localStream) return;
-  isAudioEnabled = !isAudioEnabled;
-  localStream.getAudioTracks().forEach(track => track.enabled = isAudioEnabled);
-  toggleAudioBtn.textContent = isAudioEnabled ? 'Mic Off' : 'Mic On';
-}
-
 function createPeerConnection(userId) {
   const pc = new RTCPeerConnection(rtcConfig);
   localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
@@ -274,78 +225,118 @@ function createPeerConnection(userId) {
       remoteVideo.id = `remote-video-${userId}`;
       remoteVideo.autoplay = true;
       remoteVideo.playsinline = true;
-
       const label = document.createElement('div');
       label.className = 'video-label';
-      label.textContent = 'Unknown';
-
+      label.textContent = `User_${userId.substring(0, 5)}`;
+      remoteVideo.addEventListener('click', () => pinVideo(remoteVideo));
       videoGrid.appendChild(remoteVideo);
       videoGrid.appendChild(label);
-
-      remoteVideo.addEventListener('click', () => pinVideo(remoteVideo));
-
-      getDoc(doc(db, 'rooms', roomId, 'room_members', userId)).then(doc => {
-        if (doc.exists()) {
-          label.textContent = doc.data().userName || `User_${userId.substring(0, 5)}`;
-        }
-      }).catch(error => {
-        console.error('Failed to fetch user name:', error);
-      });
     }
     remoteVideo.srcObject = event.streams[0];
-    updateVideoGridLayout(Object.keys(peerConnections).length + 1);
   };
 
-  pc.onicecandidate = (event) => {
-    if (event.candidate) {
-      socket.emit('ice-candidate', { roomId, userId, candidate: event.candidate });
-    }
-  };
-
-  pc.onconnectionstatechange = () => {
-    if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-      pc.close();
-      delete peerConnections[userId];
-      const videoElement = document.getElementById(`remote-video-${userId}`);
-      if (videoElement) {
-        if (pinnedVideo === videoElement) pinnedVideo = null;
-        const label = videoElement.nextElementSibling;
-        if (label && label.className === 'video-label') label.remove();
-        videoElement.remove();
-      }
-      updateVideoGridLayout(Object.keys(peerConnections).length + 1);
+  pc.onicecandidate = ({ candidate }) => {
+    if (candidate) {
+      socket.emit('ice-candidate', { roomId, userId, candidate });
     }
   };
 
   return pc;
 }
 
-// ========== Leave Room ==========
-
-async function leaveRoom() {
-  if (!auth.currentUser) {
-    alert('Please log in to leave the room.');
-    return;
+// Event Listeners
+leaveRoomButton.addEventListener('click', leaveRoom);
+toggleVideoBtn.addEventListener('click', () => {
+  if (isVideoEnabled) {
+    localStream.getTracks().forEach(track => track.kind === 'video' && track.enabled && (track.enabled = false));
+    toggleVideoBtn.textContent = 'Camera On';
+  } else {
+    localStream.getTracks().forEach(track => track.kind === 'video' && (track.enabled = true));
+    toggleVideoBtn.textContent = 'Camera Off';
   }
+  isVideoEnabled = !isVideoEnabled;
+});
 
-  const confirmLeave = confirm('Are you sure you want to leave the room?');
-  if (!confirmLeave) return;
+toggleAudioBtn.addEventListener('click', () => {
+  if (isAudioEnabled) {
+    localStream.getTracks().forEach(track => track.kind === 'audio' && track.enabled && (track.enabled = false));
+    toggleAudioBtn.textContent = 'Mic On';
+  } else {
+    localStream.getTracks().forEach(track => track.kind === 'audio' && (track.enabled = true));
+    toggleAudioBtn.textContent = 'Mic Off';
+  }
+  isAudioEnabled = !isAudioEnabled;
+});
 
-  const userId = auth.currentUser.uid;
+leaveCallBtn.addEventListener('click', stopVideoCall);
+
+backToChatBtn.addEventListener('click', () => {
+  videoCallSection.style.display = 'none';
+  chatSection.style.display = 'block';
+});
+
+chatTab.addEventListener('click', () => {
+  videoCallSection.style.display = 'none';
+  chatSection.style.display = 'block';
+});
+
+videoTab.addEventListener('click', () => {
+  videoCallSection.style.display = 'block';
+  chatSection.style.display = 'none';
+});
+
+// Fetch room members from Firestore
+async function loadRoomMembers() {
   try {
-    const memberRef = doc(db, 'rooms', roomId, 'room_members', userId);
-    await deleteDoc(memberRef);
-    socket.emit('leave-room', { roomId, userId });
-    stopVideoCall();
-    alert('You have left the room.');
-    window.location.href = './room-list.html';
+    const membersSnapshot = await getDocs(collection(db, 'rooms', roomId, 'room_members'));
+    membersSnapshot.forEach((doc) => {
+      const member = doc.data();
+      const li = document.createElement('li');
+      li.textContent = member.userName || `User_${member.userId.substring(0, 5)}`;
+      participantsList.appendChild(li);
+    });
   } catch (error) {
-    console.error('Error leaving room:', error);
-    alert('Failed to leave room.');
+    console.error('Error fetching room members:', error);
   }
 }
 
-// Auto-start if user clicks video tab
-videoTab.addEventListener('click', () => {
-  if (!isVideoCallActive) startVideoCall();
+// Fetch existing chat messages
+async function loadChatMessages() {
+  try {
+    const messagesQuery = query(collection(db, 'rooms', roomId, 'messages'), orderBy('timestamp'));
+    onSnapshot(messagesQuery, (snapshot) => {
+      chatMessages.innerHTML = '';
+      snapshot.forEach((doc) => {
+        const messageData = doc.data();
+        const messageElement = document.createElement('div');
+        messageElement.classList.add('chat-message');
+        messageElement.innerHTML = `<strong>${messageData.userName || 'Unknown'}:</strong> ${messageData.message}`;
+        chatMessages.appendChild(messageElement);
+      });
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    });
+  } catch (error) {
+    console.error('Error fetching messages:', error);
+  }
+}
+
+// Send chat message
+sendMessage.addEventListener('click', async () => {
+  const message = chatInput.value.trim();
+  if (!message) return;
+
+  try {
+    await addDoc(collection(db, 'rooms', roomId, 'messages'), {
+      userId: auth.currentUser.uid,
+      message,
+      timestamp: serverTimestamp(),
+    });
+    chatInput.value = '';
+  } catch (error) {
+    console.error('Error sending message:', error);
+  }
 });
+
+// Initialize room
+loadRoomMembers();
+loadChatMessages();

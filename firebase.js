@@ -1,4 +1,3 @@
-// studybuddy/studybuddy/firebase.js
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
 import { getAuth, signOut } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js";
 import { getFirestore } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js";
@@ -18,6 +17,7 @@ const firebaseConfig = {
 let app;
 try {
   app = initializeApp(firebaseConfig);
+  console.log("Firebase Initialized:", app);
 } catch (error) {
   console.error('Error initializing Firebase:', error);
   alert('Failed to initialize Firebase. Please try again later.');
@@ -27,4 +27,4 @@ try {
 // Firebase exports
 export const auth = getAuth(app);
 export const db = getFirestore(app);
-export { signOut }; // Export signOut function for use in other files
+export { signOut };

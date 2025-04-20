@@ -1,5 +1,5 @@
 import { db, auth } from './firebase.js';
-import { collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, doc, deleteDoc, getDoc, setDoc } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js';
+import { collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, doc, deleteDoc, getDoc, setDoc, getDocs } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js';
 import { getAuth, signOut } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js';
 
 const urlParams = new URLSearchParams(window.location.search);
@@ -27,6 +27,12 @@ const videoTab = document.getElementById('video-tab');
 const videoGrid = document.getElementById('video-grid');
 const localVideo = document.getElementById('local-video');
 
+// Validate DOM elements
+const requiredElements = { leaveRoomButton, chatMessages, chatInput, sendMessage, toggleVideoBtn, toggleAudioBtn, leaveCallBtn, videoCallSection, chatSection, backToChatBtn, participantsList, chatTab, videoTab, videoGrid, localVideo };
+for (const [key, element] of Object.entries(requiredElements)) {
+  if (!element) console.error(`DOM element missing: ${key}`);
+}
+
 // WebRTC variables
 let localStream = null;
 let peerConnections = {};
@@ -40,15 +46,14 @@ const socket = io('https://studybuddy-backend-57xt.onrender.com');
 // WebRTC configuration
 const rtcConfig = {
   iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' }
+    { urls: 'stun:stun.l.google.com:19302' },
+    {
+      urls: 'turn:turn.anyfirewall.com:443?transport=tcp',
+      username: 'webrtc',
+      credential: 'webrtc'
+    }
   ]
 };
-
-// Validate DOM elements
-const requiredElements = { leaveRoomButton, chatMessages, chatInput, sendMessage, toggleVideoBtn, toggleAudioBtn, leaveCallBtn, videoCallSection, chatSection, backToChatBtn, participantsList, chatTab, videoTab, videoGrid, localVideo };
-for (const [key, element] of Object.entries(requiredElements)) {
-  if (!element) console.error(`DOM element missing: ${key}`);
-}
 
 // Initially show only chat
 if (chatSection && videoCallSection) {
@@ -120,17 +125,30 @@ async function leaveRoom() {
   }
 }
 
-// Initialize WebRTC
+// Initialize WebRTC with retry
 async function startVideoCall() {
   if (isVideoCallActive) {
     console.log('Video call already active');
     return;
   }
 
+  const tryGetUserMedia = async (attempt = 1, maxAttempts = 3) => {
+    try {
+      console.log(`Requesting media devices (attempt ${attempt})...`);
+      localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      console.log('Local stream acquired:', localStream);
+      return localStream;
+    } catch (error) {
+      if (attempt < maxAttempts) {
+        console.warn(`Media access failed, retrying (${attempt}/${maxAttempts})...`, error);
+        return tryGetUserMedia(attempt + 1, maxAttempts);
+      }
+      throw error;
+    }
+  };
+
   try {
-    console.log('Requesting media devices...');
-    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    console.log('Local stream acquired:', localStream);
+    await tryGetUserMedia();
     if (localVideo) {
       localVideo.srcObject = localStream;
       localVideo.play().catch(e => console.error('Local video play error:', e));
@@ -161,38 +179,53 @@ async function startVideoCall() {
     socket.on('user-joined', async ({ userId }) => {
       console.log(`User joined: ${userId}`);
       if (userId !== auth.currentUser.uid) {
-        const pc = createPeerConnection(userId);
-        peerConnections[userId] = pc;
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        socket.emit('offer', { roomId, userId, sdp: offer });
-      }
-      updateVideoGridLayout(Object.keys(peerConnections).length + 1);
-    });
-
-    socket.on('offer', async ({ userId, sdp }) => {
-      console.log(`Received offer from ${userId}, state: ${peerConnections[userId]?.signalingState || 'none'}`);
-      if (userId !== auth.currentUser.uid) {
-        const pc = createPeerConnection(userId);
-        peerConnections[userId] = pc;
+        let pc = peerConnections[userId];
+        if (!pc) {
+          pc = createPeerConnection(userId);
+          peerConnections[userId] = pc;
+        }
         if (pc.signalingState === 'stable') {
-          await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          socket.emit('answer', { roomId, userId, sdp: answer });
-          if (candidateQueue[userId]) {
-            for (const candidate of candidateQueue[userId]) {
-              await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error('ICE candidate error:', e));
-            }
-            delete candidateQueue[userId];
-          }
-        } else {
-          console.warn(`Ignoring offer for ${userId}: Invalid state (${pc.signalingState})`);
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          socket.emit('offer', { roomId, userId, sdp: offer });
+          updateVideoGridLayout(Object.keys(peerConnections).length + 1);
         }
       }
     });
 
+    socket.on('offer', async ({ userId, sdp }) => {
+      if (userId === auth.currentUser.uid) {
+        console.warn(`Ignoring self-offer from ${userId}`);
+        return;
+      }
+      console.log(`Received offer from ${userId}, state: ${peerConnections[userId]?.signalingState || 'none'}`);
+      let pc = peerConnections[userId];
+      if (!pc) {
+        pc = createPeerConnection(userId);
+        peerConnections[userId] = pc;
+      }
+      if (pc.signalingState === 'stable') {
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp)).catch(e => console.error('setRemoteDescription error:', e));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit('answer', { roomId, userId, sdp: answer });
+        if (candidateQueue[userId]) {
+          for (const candidate of candidateQueue[userId]) {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error('ICE candidate error:', e));
+          }
+          delete candidateQueue[userId];
+        }
+        updateVideoGridLayout(Object.keys(peerConnections).length + 1);
+      } else {
+        console.warn(`Ignoring offer for ${userId}: Invalid state (${pc.signalingState})`);
+      }
+    });
+
     socket.on('answer', async ({ userId, sdp }) => {
+      if (userId === auth.currentUser.uid) {
+        console.warn(`Ignoring self-answer from ${userId}`);
+        return;
+      }
       console.log(`Received answer from ${userId}, state: ${peerConnections[userId]?.signalingState || 'none'}`);
       if (peerConnections[userId]) {
         if (peerConnections[userId].signalingState === 'have-local-offer') {
@@ -203,6 +236,7 @@ async function startVideoCall() {
             }
             delete candidateQueue[userId];
           }
+          updateVideoGridLayout(Object.keys(peerConnections).length + 1);
         } else {
           console.warn(`Ignoring answer for ${userId}: Invalid state (${peerConnections[userId].signalingState})`);
         }
@@ -210,6 +244,11 @@ async function startVideoCall() {
     });
 
     socket.on('ice-candidate', async ({ userId, candidate }) => {
+      if (userId === auth.currentUser.uid) {
+        console.warn(`Ignoring self ICE candidate from ${userId}`);
+        return;
+      }
+      console.log(`Received ICE candidate from ${userId}`);
       if (peerConnections[userId]) {
         if (peerConnections[userId].remoteDescription) {
           await peerConnections[userId].addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error('ICE candidate error:', e));
@@ -304,6 +343,8 @@ function createPeerConnection(userId) {
       getDoc(doc(db, 'rooms', roomId, 'room_members', userId)).then(doc => {
         if (doc.exists()) {
           label.textContent = doc.data().userName || `User_${userId.substring(0, 5)}`;
+        } else {
+          console.error(`No member document found for userId: ${userId}`);
         }
       }).catch(error => {
         console.error(`Error fetching member document for userId: ${userId}`, error);
@@ -353,7 +394,7 @@ function toggleVideo() {
 
 function toggleAudio() {
   if (!localStream) return;
-  const audioTrack = localStream.getVideoTracks()[0];
+  const audioTrack = localStream.getAudioTracks()[0];
   isAudioEnabled = !isAudioEnabled;
   audioTrack.enabled = isAudioEnabled;
   if (toggleAudioBtn) toggleAudioBtn.textContent = isAudioEnabled ? 'Mic Off' : 'Mic On';
@@ -402,7 +443,7 @@ if (backToChatBtn) {
   });
 }
 
-// Handle authentication
+// Handle authentication and clean up room_members
 auth.onAuthStateChanged(async (user) => {
   if (!user) {
     console.error('No authenticated user');
@@ -414,6 +455,16 @@ auth.onAuthStateChanged(async (user) => {
   const roomMembersRef = collection(db, 'rooms', roomId, 'room_members');
   try {
     console.log('Accessing room_members for user:', user.uid);
+    // Clean up duplicates
+    const membersSnapshot = await getDocs(roomMembersRef);
+    const currentUserDocs = membersSnapshot.docs.filter(doc => doc.id === user.uid);
+    if (currentUserDocs.length > 1) {
+      console.warn(`Found ${currentUserDocs.length} duplicate room_members for ${user.uid}, cleaning up...`);
+      for (let i = 1; i < currentUserDocs.length; i++) {
+        await deleteDoc(currentUserDocs[i].ref);
+      }
+    }
+
     const memberDoc = await getDoc(doc(roomMembersRef, user.uid));
     if (!memberDoc.exists()) {
       console.log('Creating member document for:', user.uid);
@@ -444,6 +495,10 @@ auth.onAuthStateChanged(async (user) => {
       if (snapshot.empty) {
         participantsList.innerHTML = '<li>No participants yet.</li>';
         return;
+      }
+      const participantCount = snapshot.docs.length;
+      if (participantCount > 2) {
+        console.warn(`Unexpected participant count: ${participantCount}, expected <= 2`);
       }
       snapshot.forEach((doc) => {
         const member = doc.data();
@@ -518,6 +573,25 @@ auth.onAuthStateChanged(async (user) => {
       } catch (error) {
         console.error('Error sending message:', error);
         alert('Failed to send message. Please try again.');
+      }
+    });
+    chatInput.addEventListener('keydown', async (event) => {
+      if (event.key === 'Enter') {
+        const text = chatInput.value.trim();
+        if (!text) return;
+        try {
+          console.log('Sending message:', text);
+          await addDoc(collection(db, 'rooms', roomId, 'messages'), {
+            text,
+            userName: user.displayName || `User_${user.uid.substring(0, 5)}`,
+            userId: user.uid,
+            createdAt: serverTimestamp(),
+          });
+          chatInput.value = '';
+        } catch (error) {
+          console.error('Error sending message:', error);
+          alert('Failed to send message. Please try again.');
+        }
       }
     });
   } else {

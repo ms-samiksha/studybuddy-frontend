@@ -13,12 +13,12 @@
     body {
       font-family: 'Poppins', sans-serif;
       margin: 0;
-      background: url('https://i.pinimg.com/736x/9b/8d/59/9b8d594bd4b03d20df7dc3281b205894.jpg') no-repeat center center fixed;
+      background: url('/assets/background.jpg') no-repeat center center fixed;
       background-size: cover;
       display: flex;
       flex-direction: column;
       min-height: 100vh;
-      padding-bottom: 60px;
+      padding-bottom: 100px; /* Increased to avoid footer overlap */
     }
     .room-container {
       display: flex;
@@ -95,19 +95,20 @@
       background-color: #5b21b6;
     }
     .video-call-section {
-      min-height: 400px;
-      height: 100%;
+      min-height: 300px; /* Adjusted for smaller screens */
+      max-height: 80vh; /* Cap to avoid overflow */
       background: #000;
       border-radius: 8px;
       display: none;
       padding: 10px;
       position: relative;
+      overflow: hidden;
     }
     .video-grid {
       display: grid;
       gap: 10px;
-      height: 100%; /* Use full height of video-call-section */
-      max-height: 80vh; /* Cap at 80% of viewport height */
+      height: 100%;
+      max-height: 80vh;
       transition: all 0.3s ease;
       overflow: hidden;
     }
@@ -119,14 +120,14 @@
       border-radius: 8px;
       cursor: pointer;
       position: relative;
-      max-height: 100%; /* Ensure it doesn't exceed grid */
+      max-height: 100%;
       max-width: 100%;
     }
     video.pinned {
       grid-column: 1 / -1;
       grid-row: 1 / -1;
-      object-fit: contain; /* Maintain aspect ratio when pinned */
-      max-height: 80vh; /* Cap pinned video height */
+      object-fit: contain;
+      max-height: 80vh;
       max-width: 100%;
       z-index: 10;
     }
@@ -193,7 +194,7 @@
         grid-template-columns: 1fr;
       }
       .video-call-section {
-        min-height: 300px; /* Adjust for smaller screens */
+        min-height: 300px;
       }
     }
   </style>
@@ -202,8 +203,8 @@
   <div class="room-container">
     <div class="section-content">
       <div class="tab-buttons">
-        <button id="chat-tab" class="tab-button active">Chat Room</button>
-        <button id="video-tab" class="tab-button">Video Call</button>
+        <button id="chat-tab" class="tab-button active" aria-label="Switch to chat room">Chat Room</button>
+        <button id="video-tab" class="tab-button" aria-label="Switch to video call">Video Call</button>
       </div>
 
       <!-- Chat Section -->
@@ -212,8 +213,8 @@
           <p class="text-gray-500">No messages yet.</p>
         </div>
         <div class="chat-input">
-          <input id="chat-input" type="text" placeholder="Type a message..." class="w-full p-2 border rounded-lg" />
-          <button id="send-message" class="bg-blue-500 hover:bg-blue-700 text-white px-4 py-2 rounded-lg">Send</button>
+          <input id="chat-input" type="text" placeholder="Type a message..." class="w-full p-2 border rounded-lg" aria-label="Type a chat message" />
+          <button id="send-message" class="bg-blue-500 hover:bg-blue-700 text-white px-4 py-2 rounded-lg" aria-label="Send message">Send</button>
         </div>
       </div>
 
@@ -223,10 +224,10 @@
           <video id="local-video" autoplay muted></video>
         </div>
         <div class="video-controls">
-          <button id="toggle-video-btn" title="Toggle Camera">Camera On</button>
-          <button id="toggle-audio-btn" title="Toggle Microphone">Mic On</button>
-          <button id="leave-call-btn" class="bg-red-500 hover:bg-red-700">Leave Call</button>
-          <button id="back-to-chat-btn" class="bg-gray-500 hover:bg-gray-700">Back to Chat</button>
+          <button id="toggle-video-btn" title="Toggle Camera" aria-label="Toggle camera">Camera On</button>
+          <button id="toggle-audio-btn" title="Toggle Microphone" aria-label="Toggle microphone">Mic On</button>
+          <button id="leave-call-btn" class="bg-red-500 hover:bg-red-700" aria-label="Leave video call">Leave Call</button>
+          <button id="back-to-chat-btn" class="bg-gray-500 hover:bg-gray-700" aria-label="Return to chat">Back to Chat</button>
         </div>
       </div>
     </div>
@@ -241,7 +242,7 @@
     © 2025 SYNCORA. Crafted to empower your study journey.
   </footer>
 
-  <button id="leave-room" class="bg-red-500 hover:bg-red-700 text-white px-4 py-2 rounded-lg m-4">Leave Room</button>
+  <button id="leave-room" class="bg-red-500 hover:bg-red-700 text-white px-4 py-2 rounded-lg m-4" aria-label="Leave study room">Leave Room</button>
 
   <script type="module" src="./firebase.js"></script>
   <script type="module" src="./room.js"></script>

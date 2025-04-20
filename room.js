@@ -149,11 +149,24 @@ async function startVideoCall() {
       }
     });
 
-    socket.on('answer', async ({ userId, sdp }) => {
-      if (peerConnections[userId]) {
-        await peerConnections[userId].setRemoteDescription(new RTCSessionDescription(sdp));
+    socket.on('answer', async ({ answer, from }) => {
+      const peerConnection = peerConnections[from];
+    
+      if (!peerConnection) {
+        console.warn("No peer connection found for", from);
+        return;
+      }
+    
+      console.log("Received answer from:", from);
+      console.log("Signaling state before setting remote description:", peerConnection.signalingState);
+    
+      if (peerConnection.signalingState === 'have-local-offer') {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+      } else {
+        console.warn("Skipping setRemoteDescription: not in have-local-offer state", peerConnection.signalingState);
       }
     });
+    
 
     socket.on('ice-candidate', async ({ userId, candidate }) => {
       if (peerConnections[userId]) {

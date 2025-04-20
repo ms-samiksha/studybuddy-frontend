@@ -53,11 +53,14 @@ videoCallSection.style.display = 'none';
 function updateVideoGridLayout(participantCount) {
   console.log(`Updating grid for ${participantCount} participants`);
   const columns = Math.min(Math.ceil(Math.sqrt(participantCount)), 3);
+  const rows = Math.ceil(participantCount / columns);
   videoGrid.style.gridTemplateColumns = `repeat(${columns}, 1fr)`;
-  videoGrid.style.gridTemplateRows = `repeat(${Math.ceil(participantCount / columns)}, 1fr)`;
+  videoGrid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+  videoGrid.style.height = `${(80 / rows) * 0.9}vh`; // Dynamic height based on rows
   if (pinnedVideo) {
     videoGrid.style.gridTemplateColumns = '1fr';
     videoGrid.style.gridTemplateRows = '1fr';
+    videoGrid.style.height = '80vh'; // Full height for pinned video
   }
 }
 

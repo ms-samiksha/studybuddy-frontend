@@ -41,7 +41,13 @@ let isVideoEnabled = false;
 let isAudioEnabled = false;
 let pinnedVideo = null;
 let candidateQueue = {};
-const socket = io('https://studybuddy-backend-57xt.onrender.com');
+let streamAssignmentTimeout = {};
+const socket = io('https://studybuddy-backend-57xt.onrender.com', {
+  reconnection: true,
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+});
 
 // WebRTC configuration
 const rtcConfig = {
@@ -179,6 +185,27 @@ async function startVideoCall() {
 
     console.log(`Emitting join-room: roomId=${roomId}, userId=${auth.currentUser.uid}`);
     socket.emit('join-room', { roomId, userId: auth.currentUser.uid });
+
+    socket.on('connect', () => {
+      console.log('Socket.IO connected to signaling server');
+      socket.emit('join-room', { roomId, userId: auth.currentUser.uid });
+    });
+
+    socket.on('connect_error', (error) => {
+      console.error('Socket.IO connect error:', error);
+      alert('Failed to connect to signaling server. Retrying...');
+    });
+
+    socket.on('reconnect', (attempt) => {
+      console.log(`Socket.IO reconnected after ${attempt} attempts`);
+      socket.emit('join-room', { roomId, userId: auth.currentUser.uid });
+    });
+
+    socket.on('reconnect_failed', () => {
+      console.error('Socket.IO reconnect failed');
+      alert('Failed to reconnect to signaling server. Please refresh the page.');
+      stopVideoCall();
+    });
 
     socket.on('user-joined', async ({ userId }) => {
       console.log(`User joined: ${userId}`);
@@ -318,12 +345,6 @@ async function startVideoCall() {
       }
     });
 
-    socket.on('connect_error', (error) => {
-      console.error('Socket.IO connection error:', error);
-      alert('Failed to connect to signaling server. Please try again later.');
-      stopVideoCall();
-    });
-
     socket.on('user-left', ({ userId }) => {
       console.log(`User left: ${userId}`);
       if (peerConnections[userId]) {
@@ -340,8 +361,24 @@ async function startVideoCall() {
       updateVideoGridLayout(Object.keys(peerConnections).length + 1);
     });
 
-    // Initiate peer connections for existing participants
+    // Validate existing participants
     const membersSnapshot = await getDocs(collection(db, 'rooms', roomId, 'room_members'));
+    const validMembers = membersSnapshot.docs.map(doc => doc.id);
+    console.log(`Valid room_members: ${validMembers}`);
+    for (const userId of Object.keys(peerConnections)) {
+      if (!validMembers.includes(userId)) {
+        console.log(`Closing stale peer connection for ${userId}`);
+        peerConnections[userId].close();
+        delete peerConnections[userId];
+        const videoElement = document.getElementById(`remote-video-${userId}`);
+        if (videoElement) {
+          if (pinnedVideo === videoElement) pinnedVideo = null;
+          const label = videoElement.nextElementSibling;
+          if (label && label.className === 'video-label') label.remove();
+          videoElement.remove();
+        }
+      }
+    }
     for (const memberDoc of membersSnapshot.docs) {
       const userId = memberDoc.id;
       if (userId !== auth.currentUser.uid && !peerConnections[userId]) {
@@ -431,22 +468,27 @@ function createPeerConnection(userId) {
       });
     }
     if (remoteVideo) {
-      remoteVideo.srcObject = event.streams[0];
-      console.log(`Attached stream to remote-video-${userId}, srcObject: ${remoteVideo.srcObject}`);
-      const tryPlay = (attempt = 1, maxAttempts = 10, delay = 500) => {
-        remoteVideo.load();
-        remoteVideo.play().then(() => {
-          console.log(`Remote video for ${userId} playing successfully`);
-        }).catch(e => {
-          console.error(`Remote video play error for ${userId}, attempt ${attempt}:`, e);
-          if (attempt < maxAttempts) {
-            setTimeout(() => tryPlay(attempt + 1, maxAttempts, delay * 2), delay);
-          } else {
-            console.error(`Failed to play remote video for ${userId} after ${maxAttempts} attempts`);
-          }
-        });
-      };
-      tryPlay();
+      if (streamAssignmentTimeout[userId]) {
+        clearTimeout(streamAssignmentTimeout[userId]);
+      }
+      streamAssignmentTimeout[userId] = setTimeout(() => {
+        remoteVideo.srcObject = event.streams[0];
+        console.log(`Attached stream to remote-video-${userId}, srcObject: ${remoteVideo.srcObject}`);
+        const tryPlay = (attempt = 1, maxAttempts = 10, delay = 1000) => {
+          remoteVideo.load();
+          remoteVideo.play().then(() => {
+            console.log(`Remote video for ${userId} playing successfully`);
+          }).catch(e => {
+            console.error(`Remote video play error for ${userId}, attempt ${attempt}:`, e);
+            if (attempt < maxAttempts) {
+              setTimeout(() => tryPlay(attempt + 1, maxAttempts, delay * 1.5), delay);
+            } else {
+              console.error(`Failed to play remote video for ${userId} after ${maxAttempts} attempts`);
+            }
+          });
+        };
+        tryPlay();
+      }, 500);
     } else {
       console.error(`remote-video-${userId} not found`);
     }
@@ -561,10 +603,20 @@ auth.onAuthStateChanged(async (user) => {
     // Clean up duplicates
     const membersSnapshot = await getDocs(roomMembersRef);
     const currentUserDocs = membersSnapshot.docs.filter(doc => doc.id === user.uid);
+    console.log(`Found room_members: ${membersSnapshot.docs.map(doc => doc.id)}`);
     if (currentUserDocs.length > 1) {
       console.warn(`Found ${currentUserDocs.length} duplicate room_members for ${user.uid}, cleaning up...`);
       for (let i = 1; i < currentUserDocs.length; i++) {
         await deleteDoc(currentUserDocs[i].ref);
+        console.log(`Deleted duplicate room_member: ${currentUserDocs[i].id}`);
+      }
+    }
+    // Delete stale members not in active sessions
+    const validUids = [user.uid]; // Add other valid UIDs from active sessions
+    for (const doc of membersSnapshot.docs) {
+      if (!validUids.includes(doc.id)) {
+        console.log(`Deleting stale room_member: ${doc.id}`);
+        await deleteDoc(doc.ref);
       }
     }
 

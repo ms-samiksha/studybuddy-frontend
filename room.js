@@ -189,14 +189,16 @@ async function startVideoCall() {
           peerConnections[userId] = pc;
         }
         if (pc.signalingState === 'stable') {
-          try {
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            socket.emit('offer', { roomId, userId, sdp: offer });
-            console.log(`Sent offer to ${userId}, state: ${pc.signalingState}`);
-          } catch (error) {
-            console.error(`Error creating offer for ${userId}:`, error);
-          }
+          setTimeout(async () => {
+            try {
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
+              socket.emit('offer', { roomId, userId, sdp: offer });
+              console.log(`Sent offer to ${userId}, signalingState: ${pc.signalingState}, connectionState: ${pc.connectionState}`);
+            } catch (error) {
+              console.error(`Error creating offer for ${userId}:`, error);
+            }
+          }, 1000);
         } else {
           console.log(`Deferring offer to ${userId}: signalingState is ${pc.signalingState}`);
         }
@@ -215,35 +217,41 @@ async function startVideoCall() {
         pc = createPeerConnection(userId);
         peerConnections[userId] = pc;
       }
-      if (pc.signalingState === 'have-local-offer') {
-        console.log(`Offer collision for ${userId}, rolling back...`);
-        try {
-          await pc.setLocalDescription(new RTCSessionDescription({ type: 'rollback' }));
-        } catch (error) {
-          console.error(`Rollback error for ${userId}:`, error);
-          return;
-        }
-      }
-      if (pc.signalingState === 'stable') {
-        try {
-          await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          socket.emit('answer', { roomId, userId, sdp: answer });
-          console.log(`Sent answer to ${userId}, state: ${pc.signalingState}`);
-          if (candidateQueue[userId]) {
-            for (const candidate of candidateQueue[userId]) {
-              await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error('ICE candidate error:', e));
-            }
-            delete candidateQueue[userId];
+      const trySetRemoteDescription = async (attempt = 1, maxAttempts = 3) => {
+        if (pc.signalingState === 'have-local-offer') {
+          console.log(`Offer collision for ${userId}, rolling back...`);
+          try {
+            await pc.setLocalDescription(new RTCSessionDescription({ type: 'rollback' }));
+          } catch (error) {
+            console.error(`Rollback error for ${userId}:`, error);
+            return;
           }
-          updateVideoGridLayout(Object.keys(peerConnections).length + 1);
-        } catch (error) {
-          console.error(`Error processing offer from ${userId}:`, error);
         }
-      } else {
-        console.warn(`Ignoring offer for ${userId}: Invalid state (${pc.signalingState})`);
-      }
+        if (pc.signalingState === 'stable') {
+          try {
+            await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            socket.emit('answer', { roomId, userId, sdp: answer });
+            console.log(`Sent answer to ${userId}, signalingState: ${pc.signalingState}, connectionState: ${pc.connectionState}`);
+            if (candidateQueue[userId]) {
+              for (const candidate of candidateQueue[userId]) {
+                await tryAddIceCandidate(pc, candidate, userId);
+              }
+              delete candidateQueue[userId];
+            }
+            updateVideoGridLayout(Object.keys(peerConnections).length + 1);
+          } catch (error) {
+            console.error(`Error processing offer from ${userId}, attempt ${attempt}:`, error);
+            if (attempt < maxAttempts) {
+              setTimeout(() => trySetRemoteDescription(attempt + 1, maxAttempts), 1000);
+            }
+          }
+        } else {
+          console.warn(`Ignoring offer for ${userId}: Invalid state (${pc.signalingState})`);
+        }
+      };
+      trySetRemoteDescription();
     });
 
     socket.on('answer', async ({ userId, sdp }) => {
@@ -253,24 +261,44 @@ async function startVideoCall() {
       }
       console.log(`Received answer from ${userId}, state: ${peerConnections[userId]?.signalingState || 'none'}`);
       if (peerConnections[userId]) {
-        if (peerConnections[userId].signalingState === 'have-local-offer') {
-          try {
-            await peerConnections[userId].setRemoteDescription(new RTCSessionDescription(sdp));
-            if (candidateQueue[userId]) {
-              for (const candidate of candidateQueue[userId]) {
-                await peerConnections[userId].addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error('ICE candidate error:', e));
+        const pc = peerConnections[userId];
+        if (pc.signalingState === 'have-local-offer') {
+          const trySetRemoteDescription = async (attempt = 1, maxAttempts = 3) => {
+            try {
+              await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+              console.log(`Set remote description for ${userId}, signalingState: ${pc.signalingState}, connectionState: ${pc.connectionState}`);
+              if (candidateQueue[userId]) {
+                for (const candidate of candidateQueue[userId]) {
+                  await tryAddIceCandidate(pc, candidate, userId);
+                }
+                delete candidateQueue[userId];
               }
-              delete candidateQueue[userId];
+              updateVideoGridLayout(Object.keys(peerConnections).length + 1);
+            } catch (error) {
+              console.error(`Error processing answer from ${userId}, attempt ${attempt}:`, error);
+              if (attempt < maxAttempts) {
+                setTimeout(() => trySetRemoteDescription(attempt + 1, maxAttempts), 1000);
+              }
             }
-            updateVideoGridLayout(Object.keys(peerConnections).length + 1);
-          } catch (error) {
-            console.error(`Error processing answer from ${userId}:`, error);
-          }
+          };
+          trySetRemoteDescription();
         } else {
-          console.warn(`Ignoring answer for ${userId}: Invalid state (${peerConnections[userId].signalingState})`);
+          console.warn(`Ignoring answer for ${userId}: Invalid state (${pc.signalingState})`);
         }
       }
     });
+
+    async function tryAddIceCandidate(pc, candidate, userId, attempt = 1, maxAttempts = 3) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        console.log(`Added ICE candidate for ${userId}, iceConnectionState: ${pc.iceConnectionState}`);
+      } catch (error) {
+        console.error(`Error adding ICE candidate for ${userId}, attempt ${attempt}:`, error);
+        if (attempt < maxAttempts) {
+          setTimeout(() => tryAddIceCandidate(pc, candidate, userId, attempt + 1, maxAttempts), 1000);
+        }
+      }
+    }
 
     socket.on('ice-candidate', async ({ userId, candidate }) => {
       if (userId === auth.currentUser.uid) {
@@ -279,8 +307,9 @@ async function startVideoCall() {
       }
       console.log(`Received ICE candidate from ${userId}`);
       if (peerConnections[userId]) {
-        if (peerConnections[userId].remoteDescription && peerConnections[userId].remoteDescription.type) {
-          await peerConnections[userId].addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error('ICE candidate error:', e));
+        const pc = peerConnections[userId];
+        if (pc.remoteDescription && pc.remoteDescription.type) {
+          await tryAddIceCandidate(pc, candidate, userId);
         } else {
           candidateQueue[userId] = candidateQueue[userId] || [];
           candidateQueue[userId].push(candidate);
@@ -319,14 +348,16 @@ async function startVideoCall() {
         const pc = createPeerConnection(userId);
         peerConnections[userId] = pc;
         if (pc.signalingState === 'stable') {
-          try {
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            socket.emit('offer', { roomId, userId, sdp: offer });
-            console.log(`Sent offer to existing user ${userId}, state: ${pc.signalingState}`);
-          } catch (error) {
-            console.error(`Error creating offer for existing user ${userId}:`, error);
-          }
+          setTimeout(async () => {
+            try {
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
+              socket.emit('offer', { roomId, userId, sdp: offer });
+              console.log(`Sent offer to existing user ${userId}, signalingState: ${pc.signalingState}, connectionState: ${pc.connectionState}`);
+            } catch (error) {
+              console.error(`Error creating offer for existing user ${userId}:`, error);
+            }
+          }, 1000);
         }
       }
     }
@@ -376,7 +407,7 @@ function createPeerConnection(userId) {
   }
 
   pc.ontrack = (event) => {
-    console.log(`Received track from ${userId}, streams: ${event.streams.length}`);
+    console.log(`Received track from ${userId}, streams: ${event.streams.length}, streamId: ${event.streams[0]?.id}`);
     let remoteVideo = document.getElementById(`remote-video-${userId}`);
     if (!remoteVideo && videoGrid) {
       remoteVideo = document.createElement('video');
@@ -401,11 +432,17 @@ function createPeerConnection(userId) {
     }
     if (remoteVideo) {
       remoteVideo.srcObject = event.streams[0];
-      const tryPlay = (attempt = 1, maxAttempts = 5, delay = 1000) => {
-        remoteVideo.play().catch(e => {
+      console.log(`Attached stream to remote-video-${userId}, srcObject: ${remoteVideo.srcObject}`);
+      const tryPlay = (attempt = 1, maxAttempts = 10, delay = 500) => {
+        remoteVideo.load();
+        remoteVideo.play().then(() => {
+          console.log(`Remote video for ${userId} playing successfully`);
+        }).catch(e => {
           console.error(`Remote video play error for ${userId}, attempt ${attempt}:`, e);
           if (attempt < maxAttempts) {
             setTimeout(() => tryPlay(attempt + 1, maxAttempts, delay * 2), delay);
+          } else {
+            console.error(`Failed to play remote video for ${userId} after ${maxAttempts} attempts`);
           }
         });
       };
@@ -419,12 +456,12 @@ function createPeerConnection(userId) {
   pc.onicecandidate = (event) => {
     if (event.candidate) {
       socket.emit('ice-candidate', { roomId, userId, candidate: event.candidate });
-      console.log(`Sent ICE candidate to ${userId}`);
+      console.log(`Sent ICE candidate to ${userId}, iceConnectionState: ${pc.iceConnectionState}`);
     }
   };
 
   pc.onconnectionstatechange = () => {
-    console.log(`Peer ${userId} connection state: ${pc.connectionState}`);
+    console.log(`Peer ${userId} connection state: ${pc.connectionState}, iceConnectionState: ${pc.iceConnectionState}, signalingState: ${pc.signalingState}`);
     if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
       pc.close();
       delete peerConnections[userId];
@@ -437,6 +474,14 @@ function createPeerConnection(userId) {
       }
       updateVideoGridLayout(Object.keys(peerConnections).length + 1);
     }
+  };
+
+  pc.onsignalingstatechange = () => {
+    console.log(`Peer ${userId} signaling state: ${pc.signalingState}`);
+  };
+
+  pc.oniceconnectionstatechange = () => {
+    console.log(`Peer ${userId} ICE connection state: ${pc.iceConnectionState}`);
   };
 
   return pc;

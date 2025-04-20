@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Progress Tracker | SYNCORA</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <style>
+    body {
+      font-family: 'Poppins', sans-serif;
+      margin: 0;
+      background: url('https://i.pinimg.com/736x/9b/8d/59/9b8d594bd4b03d20df7dc3281b205894.jpg') no-repeat center center fixed;
+      background-size: cover;
+      min-height: 100vh;
+    }
+
+    .dashboard-card {
+      background: rgba(255, 255, 255, 0.7);
+      padding: 30px;
+      border-radius: 16px;
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+    }
+
+    footer {
+      background-color: #3B1E54;
+      color: white;
+      text-align: center;
+      padding: 20px;
+      font-size: 0.875rem;
+    }
+
+    .todo-container {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 15px;
+      border-radius: 12px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+      width: 250px;
+      z-index: 1000;
+    }
+
+    .todo-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 5px 0;
+    }
+
+    .todo-item input[type="checkbox"] {
+      margin-right: 10px;
+    }
+
+    .quiz-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+
+    .quiz-table th, .quiz-table td {
+      padding: 10px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+    }
+
+    .quiz-table th {
+      background-color: #7e5bef;
+      color: white;
+    }
+
+    .quiz-table tr:hover {
+      background-color: #f5f5f5;
+    }
+  </style>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            pop: ['Poppins', 'sans-serif']
+          },
+          colors: {
+            primary: {
+              DEFAULT: '#7e5bef',
+              light: '#a78bfa',
+              dark: '#5b21b6'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <div class="flex justify-center items-center min-h-screen">
+    <div class="dashboard-card w-full max-w-2xl mx-auto">
+      <h2 class="text-3xl font-bold text-primary text-center mb-8">Progress Tracker</h2>
+      <p class="text-center mb-4">Track your quiz progress below:</p>
+      <div id="quiz-results">
+        <table class="quiz-table">
+          <thead>
+            <tr>
+              <th>Quiz Topic</th>
+              <th>Score</th>
+              <th>Correct</th>
+              <th>Total</th>
+              <th>Date</th>
+            </tr>
+          </thead>
+          <tbody id="quiz-results-body">
+            <tr><td colspan="5" class="text-center">Loading quiz results...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <a href="dashboard.html" class="text-primary hover:underline text-center block mt-4">Back to Dashboard</a>
+    </div>
+  </div>
+
+  <div class="todo-container" id="todo-container">
+    <h3 class="text-lg font-semibold text-[#9B7EBD] mb-2">To-Do List</h3>
+    <div id="todo-list"></div>
+    <input id="todo-input" type="text" placeholder="Add a task..." class="w-full p-2 border rounded-lg mt-2" />
+    <button id="add-todo-button" class="bg-[#9B7EBD] hover:bg-[#c9afd9] text-black px-4 py-1 rounded-lg mt-2 w-full">Add</button>
+  </div>
+
+  <footer>
+    © 2025 SYNCORA. Crafted to empower your study journey.
+  </footer>
+
+  <script type="module">
+    import { auth, db } from './firebase.js';
+    import { initTodoList } from './todo.js';
+    import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js';
+    import { collection, query, where, getDocs } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js';
+
+    // Initialize to-do list
+    initTodoList('todo-container', 'todo-list', 'todo-input', 'add-todo-button', 'username');
+
+    // Check user authentication
+    onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        window.location.href = 'login.html';
+      } else {
+        console.log('Logged in user ID:', user.uid);
+        loadQuizResults(user.uid);
+      }
+    });
+
+    // Function to fetch and display quiz results
+    async function loadQuizResults(userId) {
+      const quizResultsBody = document.getElementById('quiz-results-body');
+      try {
+        quizResultsBody.innerHTML = '<tr><td colspan="5" class="text-center">Loading quiz results...</td></tr>';
+
+        // Query Firestore for quiz results
+        const q = query(
+          collection(db, 'quizResults'),
+          where('userId', '==', userId)
+        );
+        const querySnapshot = await getDocs(q);
+
+        quizResultsBody.innerHTML = '';
+
+        if (querySnapshot.empty) {
+          quizResultsBody.innerHTML = '<tr><td colspan="5" class="text-center">No quiz results found.</td></tr>';
+          console.log('No quiz results found for user:', userId);
+          return;
+        }
+
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          console.log('Fetched quiz data:', data);
+
+          const date = data.timestamp?.toDate ? new Date(data.timestamp.toDate()).toLocaleDateString() : 'N/A';
+
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td>${data.quizTitle || 'Untitled'}</td>
+            <td>${data.score !== undefined ? data.score + '%' : 'N/A'}</td>
+            <td>${data.correctAnswers ?? 'N/A'}</td>
+            <td>${data.totalQuestions ?? 'N/A'}</td>
+            <td>${date}</td>
+          `;
+          quizResultsBody.appendChild(row);
+        });
+      } catch (error) {
+        console.error('Error fetching quiz results:', error.message, error.code);
+
+        let errorMessage = 'Error loading quiz results.';
+        if (error.code === 'permission-denied') {
+          errorMessage = 'Permission denied. Please ensure you are logged in.';
+        } else if (error.code === 'unavailable') {
+          errorMessage = 'Network error. Please check your connection.';
+        }
+
+        quizResultsBody.innerHTML = `<tr><td colspan="5" class="text-center">${errorMessage}</td></tr>`;
+      }
+    }
+  </script>
+</body>
+</html>

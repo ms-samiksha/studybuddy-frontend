@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Welcome | SYNCORA</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            pop: ['Poppins', 'sans-serif']
+          },
+          colors: {
+            primary: {
+              DEFAULT: '#7e5bef',
+              light: '#a78bfa',
+              dark: '#5b21b6'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      font-family: 'Poppins', sans-serif;
+      margin: 0;
+      background: url('https://i.pinimg.com/originals/a5/d1/f6/a5d1f61e89bdce061817723044f8a757.gif');
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      
+    }
+    .feature {
+      opacity: 1;
+      transform: scale(1);
+      transition: transform 0.3s ease-in-out;
+      background: rgba(255, 255, 255, 0.801); /* Transparent background matching form-card */
+      border-radius: 16px; /* Consistent with form-card */
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1); /* Matching form-card shadow */
+      flex: 0 0 280px; /* Fixed width for consistent card size */
+      height: 240px; /* Fixed height for uniformity */
+      display: flex;
+      flex-direction: column;
+      justify-content: center; /* Center content vertically */
+      align-items: center; /* Center content horizontally */
+      text-align: center;
+      padding: 20px;
+    }
+    .feature:hover {
+      transform: scale(1.15);
+    }
+    .hero {
+      background: none;
+      min-height: 80vh; /* Ensure hero takes enough space */
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1rem;
+      margin-bottom: 2rem; /* Add spacing below hero to separate from features */
+    }
+    .form-card {
+      background: rgba(255, 255, 255, 0.834);
+      padding: 30px;
+      border-radius: 16px;
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+    }
+    footer {
+      background-color: #3B1E54;
+      color: #EEEEEE;
+      text-align: center;
+      padding: 20px;
+      font-size: 0.875rem;
+      margin-top: auto;
+    }
+    .features-heading {
+      color: white; /* White heading */
+      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); /* Subtle shadow for readability */
+    }
+    .features-container {
+      display: flex;
+      overflow-x: auto;
+      gap: 20px; /* Consistent spacing between cards */
+      padding: 20px 0;
+      scroll-snap-type: x mandatory; /* Smooth snapping for scrolling */
+      scrollbar-width: thin; /* Firefox scrollbar */
+    }
+    .features-container::-webkit-scrollbar {
+      height: 8px; /* Chrome/Safari scrollbar */
+    }
+    .features-container::-webkit-scrollbar-thumb {
+      background: #7e5bef;
+      border-radius: 4px;
+    }
+    .features-section {
+      background: none; /* Blend with body background */
+      padding-top: 0; /* Remove extra top padding to align closer but not overlap */
+      padding-bottom: 4rem; /* Ensure space at bottom */
+    }
+  </style>
+</head>
+<body>
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="form-card text-center p-10 max-w-2xl w-full">
+      <h1 class="text-5xl font-bold text-[#7E60BF] mb-4">Welcome to Sync⟡ra</h1>
+
+      <p class="text-gray-700 text-lg mb-6 drop-shadow-lg">Your ultimate purple-powered AI companion for smarter studying.</p>
+      <div class="flex justify-center gap-6">
+        <a href="login.html" class="bg-[#BC99D5] text-white px-8 py-3 rounded-lg shadow-lg hover:bg-[#3B1E54] transition transform hover:scale-105">Login</a>
+        <a href="signup.html" class="bg-[#BC99D5] text-white px-8 py-3 rounded-lg shadow-lg hover:bg-[#3B1E54] transition transform hover:scale-105">Sign Up</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features Section -->
+  <section class="features-section px-6">
+    <div class="max-w-6xl mx-auto">
+      <h2 class="text-4xl font-bold text-center features-heading mb-12">Explore the Features</h2>
+      <div class="features-container">
+        <!-- Feature Cards -->
+        <div class="feature">
+          <div class="text-4xl mb-4">🧑‍🏫</div>
+          <h3 class="text-xl font-semibold mb-2" style="color: #433878;">Study Rooms</h3>
+          <p class="text-gray-600 text-sm">Join focused group rooms, collaborate, and stay accountable with your team.</p>
+        </div>
+  
+        <div class="feature">
+          <div class="text-4xl mb-4">📄</div>
+          <h3 class="text-xl font-semibold mb-2" style="color: #433878;">Notes Summarizer</h3>
+          <p class="text-gray-600 text-sm">Upload notes or PDFs and let our AI generate clean summaries to save time.</p>
+        </div>
+  
+        <div class="feature">
+          <div class="text-4xl mb-4">❓</div>
+          <h3 class="text-xl font-semibold mb-2" style="color: #433878;">Quiz Bot</h3>
+          <p class="text-gray-600 text-sm">Test your knowledge with auto-generated quizzes based on your study material.</p>
+        </div>
+  
+        <div class="feature">
+          <div class="text-4xl mb-4">⚡</div>
+          <h3 class="text-xl font-semibold mb-2" style="color: #433878;">Motivation Bot</h3>
+          <p class="text-gray-600 text-sm">Get pep talks, focus tips, and reminders to crush your goals—even on tough days.</p>
+        </div>
+  
+        <div class="feature">
+          <div class="text-4xl mb-4">✅</div>
+          <h3 class="text-xl font-semibold mb-2" style="color: #433878;">To-Do List</h3>
+          <p class="text-gray-600 text-sm">Stay organized by tracking your tasks and building streaks with custom to-do lists.</p>
+        </div>
+  
+        <div class="feature">
+          <div class="text-4xl mb-4">📅</div>
+          <h3 class="text-xl font-semibold mb-2" style="color: #433878;">Task Reminder</h3>
+          <p class="text-gray-600 text-sm">Set up reminders for your tasks to keep your study schedule on track.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+  
+  
+  <!-- Footer -->
+  <footer>
+    © 2025 SYNCORA. Built for learners who love purple vibes and productivity.
+  </footer>
+
+  <!-- Firebase SDK Scripts -->
+  <script type="module" src="https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js"></script>
+  <script type="module" src="https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js"></script>
+  <script type="module" src="https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js"></script>
+</body>
+</html>

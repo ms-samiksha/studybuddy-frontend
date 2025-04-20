@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Login | SYNCORA</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            pop: ['Poppins', 'sans-serif']
+          },
+          colors: {
+            primary: {
+              DEFAULT: '#7e5bef',
+              light: '#a78bfa',
+              dark: '#5b21b6'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body {
+      font-family: 'Poppins', sans-serif;
+      margin: 0;
+      background-color: #c7abdc;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    .hero {
+      background: rgba(255, 255, 255, 0.3);
+      backdrop-filter: blur(12px);
+    }
+
+    .form-card {
+      background: rgba(255, 255, 255, 0.7);
+      padding: 30px;
+      border-radius: 16px;
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+    }
+
+    input[type="text"], input[type="email"], input[type="password"] {
+      padding: 12px;
+      border-radius: 8px;
+      border: 2px solid #b4a5e7;
+      width: 100%;
+      margin-bottom: 16px;
+      font-size: 1rem;
+      background-color: rgba(255, 255, 255, 0.7);
+    }
+
+    input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focus {
+      border-color: #5b21b6;
+      outline: none;
+      box-shadow: 0 0 8px rgba(91, 33, 182, 0.5);
+    }
+
+    button {
+      padding: 12px 0;
+      border-radius: 8px;
+      width: 100%;
+      background-color: #7e5bef;
+      color: white;
+      font-weight: 600;
+      font-size: 1rem;
+      transition: all 0.3s;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background-color: #3B1E54;
+      color:white;
+      transform: scale(1);
+    }
+
+    a {
+      color: #7e5bef;
+      text-decoration: underline;
+      font-weight: bold;
+    }
+
+    a:hover {
+      color: #5b21b6;
+    }
+
+    footer {
+      background-color: #3B1E54;
+      color: white;
+      text-align: center;
+      padding: 20px;
+      font-size: 0.875rem;
+    }
+
+    .error-message {
+      color: #dc2626;
+      font-size: 0.875rem;
+      text-align: center;
+      margin-top: 8px;
+    }
+
+    .content {
+      flex-grow: 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="content">
+    <div class="form-card max-w-sm w-full">
+      <h2 class="text-2xl font-bold mb-4 text-center">⌞Login⌝</h2>
+      <input type="email" id="email" placeholder="Email address" required />
+      <input type="password" id="password" placeholder="Password" required />
+      <button id="loginButton">Login</button>
+      <p id="errorMessage" class="error-message"></p>
+      <p class="text-sm text-center mt-2">
+        <a href="#" id="forgotPasswordLink">Forgot Password?</a>
+      </p>
+      <p class="text-sm text-center mt-2">Don't have an account? <a href="signup.html">Sign Up</a></p>
+    </div>
+  </div>
+  <footer>
+    © 2025 SYNCORA. Crafted to empower your study journey.
+  </footer>
+  <script type="module" src="./firebase.js"></script>
+  <script type="module">
+    import { auth } from './firebase.js';
+    import { signInWithEmailAndPassword, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js";
+
+    const loginButton = document.getElementById('loginButton');
+    const errorMessage = document.getElementById('errorMessage');
+    const forgotPasswordLink = document.getElementById('forgotPasswordLink');
+
+    loginButton.addEventListener('click', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+
+      errorMessage.textContent = '';
+      if (!email || !password) {
+        errorMessage.textContent = 'Please fill in all fields.';
+        return;
+      }
+
+      try {
+        loginButton.disabled = true;
+        loginButton.textContent = 'Logging In...';
+        await signInWithEmailAndPassword(auth, email, password);
+        window.location.href = 'dashboard.html';
+      } catch (error) {
+        console.error('Login error:', error);
+        let message = 'An error occurred. Please try again.';
+        switch (error.code) {
+          case 'auth/wrong-password':
+            message = 'Incorrect password.';
+            break;
+          case 'auth/user-not-found':
+            message = 'No account found with this email.';
+            break;
+          case 'auth/invalid-email':
+            message = 'Invalid email address.';
+            break;
+          case 'auth/invalid-credential':
+            message = 'Invalid credentials. Please check your email or password.';
+            break;
+          case 'auth/too-many-requests':
+            message = 'Too many attempts. Please try again later.';
+            break;
+        }
+        errorMessage.textContent = message;
+      } finally {
+        loginButton.disabled = false;
+        loginButton.textContent = 'Login';
+      }
+    });
+
+    forgotPasswordLink.addEventListener('click', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('email').value;
+      if (!email) {
+        errorMessage.textContent = 'Please enter your email address.';
+        return;
+      }
+
+      try {
+        await sendPasswordResetEmail(auth, email);
+        errorMessage.textContent = 'Password reset email sent! Check your inbox.';
+      } catch (error) {
+        console.error('Password reset error:', error);
+        let message = 'Failed to send reset email. Please try again.';
+        if (error.code === 'auth/invalid-email') {
+          message = 'Invalid email address.';
+        } else if (error.code === 'auth/user-not-found') {
+          message = 'No account found with this email.';
+        }
+        errorMessage.textContent = message;
+      }
+    });
+  </script>
+</body>
+</html>

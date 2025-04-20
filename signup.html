@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Sign Up | SYNCORA</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            pop: ['Poppins', 'sans-serif']
+          },
+          colors: {
+            primary: {
+              DEFAULT: '#7e5bef',
+              light: '#a78bfa',
+              dark: '#5b21b6'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      font-family: 'Poppins', sans-serif;
+      margin: 0;
+      background-color: #c7abdc;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    .hero {
+      background: rgba(255, 255, 255, 0.3);
+      backdrop-filter: blur(12px);
+    }
+    input[type="text"], input[type="email"], input[type="password"] {
+      padding: 12px;
+      border-radius: 8px;
+      border: 2px solid #b4a5e7;
+      width: 100%;
+      margin-bottom: 16px;
+      font-size: 1rem;
+      background-color: rgba(255, 255, 255, 0.7);
+    }
+    input[type="text"]:focus, input[type="email"]:focus, input[type="password"]:focus {
+      border-color: #b4a5e7;
+      outline: none;
+      box-shadow: 0 0 8px rgba(91, 33, 182, 0.5);
+    }
+    button {
+      padding: 12px 0;
+      border-radius: 8px;
+      width: 100%;
+      background-color: #7e5bef;
+      color: white;
+      font-weight: 600;
+      font-size: 1rem;
+      transition: all 0.3s;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #3B1E54;
+      color: white;
+      transform: scale(1);
+    }
+    a {
+      color: #7e5bef;
+      text-decoration: underline;
+      font-weight: bold;
+    }
+    a:hover {
+      color: #5b21b6;
+    }
+    .form-card {
+      background: rgba(255, 255, 255, 0.7);
+      padding: 30px;
+      border-radius: 16px;
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+    }
+    h2 {
+      color: #5b21b6;
+      font-size: 1.75rem;
+      font-weight: bold;
+    }
+    footer {
+      background-color: #3B1E54;
+      color: white;
+      text-align: center;
+      padding: 20px;
+      font-size: 0.875rem;
+    }
+    .error-message {
+      color: #dc2626;
+      font-size: 0.875rem;
+      text-align: center;
+      margin-top: 8px;
+    }
+    .content {
+      flex-grow: 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .face-modal {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 2000;
+    }
+    .face-modal-content {
+      background: rgba(255, 255, 255, 0.773);
+      padding: 30px;
+      border-radius: 16px;
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+      max-width: 400px;
+      width: 100%;
+      text-align: center;
+    }
+    .face-modal-content h2 {
+      color: #433878;
+      font-size: 1.75rem;
+      font-weight: bold;
+      margin-bottom: 1rem;
+    }
+    .face-modal-content p {
+      color: #433878;
+      margin-bottom: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="content">
+    <div class="form-card max-w-sm w-full">
+      <h2 class="text-2xl font-bold mb-4 text-center">⌞Sign Up⌝</h2>
+      <input type="text" id="username" placeholder="Choose a username" required />
+      <input type="email" id="email" placeholder="Email address" required />
+      <input type="password" id="password" placeholder="Create password" required />
+      <button id="signupButton">Sign Up</button>
+      <p id="errorMessage" class="error-message"></p>
+      <p class="text-sm text-center mt-2">Already have an account? <a href="login.html">Login</a></p>
+    </div>
+  </div>
+  <!-- Face Capture Modal -->
+  <div id="faceModal" class="face-modal hidden">
+    <div class="face-modal-content">
+      <h2>Add Your Profile Picture</h2>
+      <p>Please capture your face to personalize your account.</p>
+      <button id="captureBtn" class="bg-[#3B1E54] hover:bg-[#6f54aa] text-white px-8 py-3 rounded-lg shadow-lg transition transform hover:scale-105">Capture Face</button>
+      <button id="skipBtn" class="bg-[#9B7EBD] hover:bg-[#c9afd9] text-black px-8 py-3 rounded-lg shadow-lg transition transform hover:scale-105 mt-4">Skip</button>
+      <p id="modalError" class="error-message"></p>
+    </div>
+  </div>
+  <footer>
+    © 2025 SYNCORA. Crafted to empower your study journey.
+  </footer>
+  <!-- Firebase & JS Script -->
+  <script type="module" src="./firebase.js"></script>
+  <script type="module">
+    import { getAuth, createUserWithEmailAndPassword, updateProfile, sendEmailVerification } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js";
+    import { getFirestore, doc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js";
+
+    const signupButton = document.getElementById('signupButton');
+    const errorMessage = document.getElementById('errorMessage');
+    const captureBtn = document.getElementById('captureBtn');
+    const skipBtn = document.getElementById('skipBtn');
+    const modalError = document.getElementById('modalError');
+    const faceModal = document.getElementById('faceModal');
+    const auth = getAuth();
+    const db = getFirestore();
+    const BACKEND_URL = 'http://localhost:5000';
+
+    signupButton.addEventListener('click', async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('username').value;
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+
+      errorMessage.textContent = '';
+      if (!username || !email || !password) {
+        errorMessage.textContent = 'Please fill in all fields.';
+        return;
+      }
+
+      // Validate username (alphanumeric and underscores only)
+      if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+        errorMessage.textContent = 'Username must contain only letters, numbers, or underscores.';
+        return;
+      }
+
+      try {
+        signupButton.disabled = true;
+        signupButton.textContent = 'Signing Up...';
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
+        await updateProfile(user, { displayName: username });
+        await sendEmailVerification(user);
+        await setDoc(doc(db, 'users', user.uid), {
+          username: username,
+          email: email,
+          faceCaptured: false
+        }, { merge: true });
+        errorMessage.textContent = 'Sign up successful! Please capture your profile picture.';
+        // Store username for face capture
+        localStorage.setItem('signupUsername', username);
+        faceModal.classList.remove('hidden');
+      } catch (error) {
+        console.error('Signup error:', error);
+        let message = 'An error occurred. Please try again.';
+        switch (error.code) {
+          case 'auth/email-already-in-use':
+            message = 'This email is already in use.';
+            break;
+          case 'auth/invalid-email':
+            message = 'Invalid email address.';
+            break;
+          case 'auth/weak-password':
+            message = 'Password must be at least 6 characters.';
+            break;
+        }
+        errorMessage.textContent = message;
+      } finally {
+        signupButton.disabled = false;
+        signupButton.textContent = 'Sign Up';
+      }
+    });
+
+    captureBtn.addEventListener('click', async () => {
+      const user = auth.currentUser;
+      const username = localStorage.getItem('signupUsername');
+      if (!user || !username) {
+        modalError.textContent = 'No user or username found.';
+        return;
+      }
+
+      try {
+        modalError.textContent = '';
+        captureBtn.disabled = true;
+        captureBtn.textContent = 'Capturing...';
+        const response = await fetch(`${BACKEND_URL}/capture_face`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: user.uid, username: username })
+        });
+        const result = await response.json();
+        if (response.ok) {
+          await setDoc(doc(db, 'users', user.uid), { faceCaptured: true }, { merge: true });
+          faceModal.classList.add('hidden');
+          localStorage.removeItem('signupUsername');
+          window.location.href = 'dashboard.html';
+        } else {
+          modalError.textContent = result.message || 'Failed to capture face.';
+        }
+      } catch (error) {
+        console.error('Capture error:', error);
+        modalError.textContent = error.message.includes('Failed to fetch')
+          ? 'Cannot connect to server. Ensure Flask server is running on port 5000.'
+          : `Error: ${error.message}`;
+      } finally {
+        captureBtn.disabled = false;
+        captureBtn.textContent = 'Capture Face';
+      }
+    });
+
+    skipBtn.addEventListener('click', async () => {
+      const user = auth.currentUser;
+      if (user) {
+        try {
+          await setDoc(doc(db, 'users', user.uid), { faceCaptured: false }, { merge: true });
+        } catch (error) {
+          console.error('Firestore error:', error);
+        }
+      }
+      faceModal.classList.add('hidden');
+      localStorage.removeItem('signupUsername');
+      window.location.href = 'dashboard.html';
+    });
+  </script>
+</body>
+</html>

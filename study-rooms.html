@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Study Rooms | SYNCORA</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            pop: ['Poppins', 'sans-serif']
+          },
+          colors: {
+            primary: {
+              DEFAULT: '#7e5bef',
+              light: '#a78bfa',
+              dark: '#5b21b6'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body {
+      font-family: 'Poppins', sans-serif;
+      margin: 0;
+      background: url('https://i.pinimg.com/736x/86/fe/38/86fe38c5606ac19de1769fd65b1c25d4.jpg') no-repeat center center fixed;
+      background-size: cover;
+    }
+
+    .dashboard-card {
+      background: rgba(255, 255, 255, 0.81);
+      padding: 30px;
+      border-radius: 16px;
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+    }
+
+    footer {
+      background-color: #3B1E54;
+      color: white;
+      text-align: center;
+      padding: 20px;
+      font-size: 0.875rem;
+    }
+
+    .todo-container {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 15px;
+      border-radius: 12px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+      width: 250px;
+      z-index: 1000;
+    }
+
+    .todo-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 5px 0;
+    }
+
+    .todo-item input[type="checkbox"] {
+      margin-right: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="flex justify-center items-center min-h-screen">
+    <div class="dashboard-card w-full max-w-md mx-auto">
+      <h2 class="text-3xl font-bold text-[#3B1E54] text-center mb-8">Study Rooms</h2>
+      <div class="flex flex-col gap-4">
+        <a href="create-room.html" class="bg-[#9B7EBD] hover:bg-[#3B1E54] text-white px-8 py-3 rounded-lg shadow-lg transition transform hover:scale-105 text-center">Create New Room</a>
+        <a href="room-list.html" class="bg-[#c3a5da] hover:bg-[#3B1E54] text-white px-8 py-3 rounded-lg shadow-lg transition transform hover:scale-105 text-center">View Existing Rooms</a>
+        <a href="dashboard.html" class="text-[#000000] hover:underline text-center mt-4">Back to Dashboard</a>
+      </div>
+      
+    </div>
+  </div>
+
+  <div class="todo-container" id="todo-container">
+    <h3 class="text-lg font-semibold text-[#9B7EBD] mb-2">To-Do List</h3>
+    <div id="todo-list"></div>
+    <input id="todo-input" type="text" placeholder="Add a task..." class="w-full p-2 border rounded-lg mt-2" />
+    <button id="add-todo-button" class="bg-[#9B7EBD] hover:bg-[#c9afd9] text-black px-4 py-1 rounded-lg mt-2 w-full">Add</button>
+  </div>
+
+
+  <footer>
+    © 2025 SYNCORA. Crafted to empower your study journey.
+  </footer>
+
+  <script type="module" src="firebase.js"></script>
+  <script type="module">
+    import { initTodoList } from './todo.js';
+
+    // Initialize to-do list
+    initTodoList('todo-container', 'todo-list', 'todo-input', 'add-todo-button', 'username');
+  </script>
+</body>
+</html>

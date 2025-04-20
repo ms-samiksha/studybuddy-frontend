@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Quiz Bot | SYNCORA</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <style>
+    body {
+      font-family: 'Poppins', sans-serif;
+      margin: 0;
+      background: url('purplebooks.jpg') no-repeat center center fixed;
+      background-size: cover;
+    }
+
+    .dashboard-card {
+      background: rgba(255, 255, 255, 0.866);
+      padding: 30px;
+      border-radius: 16px;
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+    }
+
+    footer {
+      background-color: #3B1E54;
+      color: white;
+      text-align: center;
+      padding: 20px;
+      font-size: 0.875rem;
+    }
+
+    .todo-container {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 15px;
+      border-radius: 12px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+      width: 250px;
+      z-index: 1000;
+    }
+
+    .todo-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 5px 0;
+    }
+
+    .todo-item input[type="checkbox"] {
+      margin-right: 10px;
+    }
+
+    .chat-container {
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 12px;
+      padding: 15px;
+      height: 300px;
+      overflow-y: auto;
+      margin-bottom: 10px;
+    }
+
+    .chat-message {
+      margin-bottom: 10px;
+    }
+
+    .chat-message.user {
+      text-align: right;
+    }
+
+    .chat-message.user span {
+      background: #9B7EBD;
+      color: white;
+      padding: 8px 12px;
+      border-radius: 12px;
+      display: inline-block;
+      max-width: 70%;
+    }
+
+    .chat-message.bot {
+      text-align: left;
+    }
+
+    .chat-message.bot span {
+      background: #e5e7eb;
+      color: #1f2937;
+      padding: 8px 12px;
+      border-radius: 12px;
+      display: inline-block;
+      max-width: 70%;
+    }
+
+    #send-button {
+      background-color: #3B1E54;
+    }
+
+    #send-button:hover {
+      background-color: #5b21b6;
+    }
+  </style>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            pop: ['Poppins', 'sans-serif']
+          },
+          colors: {
+            primary: {
+              DEFAULT: '#3B1E54',
+              light: '#a78bfa',
+              dark: '#5b21b6'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <div class="flex justify-center items-center min-h-screen">
+    <div class="dashboard-card w-full max-w-md mx-auto">
+      <h2 class="text-3xl font-bold text-primary text-center mb-8">Quiz Bot</h2>
+      <div class="chat-container" id="chat-container"></div>
+      <div class="flex gap-2">
+        <input id="chat-input" type="text" placeholder="Enter a topic (e.g., 'math')..." class="w-full p-2 border rounded-lg" />
+        <button id="send-button" class="bg-primary hover:bg-primary-dark text-white px-4 py-2 rounded-lg">Send</button>
+      </div>
+      <a href="ai-bots.html" class="text-primary hover:underline text-center block mt-4">Back to AI Bots</a>
+    </div>
+  </div>
+
+  <div class="todo-container" id="todo-container">
+    <h3 class="text-lg font-semibold text-[#9B7EBD] mb-2">To-Do List</h3>
+    <div id="todo-list"></div>
+    <input id="todo-input" type="text" placeholder="Add a task..." class="w-full p-2 border rounded-lg mt-2" />
+    <button id="add-todo-button" class="bg-[#9B7EBD] hover:bg-[#c9afd9] text-black px-4 py-1 rounded-lg mt-2 w-full">Add</button>
+  </div>
+
+  <footer>
+    © 2025 SYNCORA. Crafted to empower your study journey.
+  </footer>
+
+  <script type="module" src="firebase.js"></script>
+  <script type="module">
+    import { auth, db } from './firebase.js';
+    import { initTodoList } from './todo.js';
+    import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js';
+    import { collection, addDoc } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js';
+
+    initTodoList('todo-container', 'todo-list', 'todo-input', 'add-todo-button', 'username');
+
+    onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        window.location.href = 'login.html';
+      }
+    });
+
+    const GEMINI_API_KEY = 'AIzaSyCddNbP65pJ5ZLMHE-z5pKjj6ydefexcA0';
+    const chatContainer = document.getElementById('chat-container');
+    const chatInput = document.getElementById('chat-input');
+    const sendButton = document.getElementById('send-button');
+
+    let messages = [];
+    let currentQuestion = null;
+    let correctCount = 0;
+    let totalQuestions = 0;
+    let subject = null;
+    let quizActive = false;
+    let askedQuestions = [];
+
+    function addMessage(text, sender) {
+      messages.push({ text, sender });
+      renderMessages();
+    }
+
+    function renderMessages() {
+      chatContainer.innerHTML = '';
+      messages.forEach(msg => {
+        const div = document.createElement('div');
+        div.className = `chat-message ${msg.sender}`;
+        div.innerHTML = `<span>${msg.text}</span>`;
+        chatContainer.appendChild(div);
+      });
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    async function saveQuizResult(userId, quizTitle, correctAnswers, totalQuestions) {
+      try {
+        const score = totalQuestions > 0 ? Math.round((correctAnswers / totalQuestions) * 100) : 0;
+        await addDoc(collection(db, 'quizResults'), {
+          userId,
+          quizTitle,
+          score,
+          correctAnswers,
+          totalQuestions,
+          timestamp: new Date()
+        });
+      } catch (error) {
+        console.error('Error saving quiz result:', error);
+        addMessage('Failed to save quiz results.', 'bot');
+      }
+    }
+
+    async function generateNewQuestion() {
+      const prompt = `You are a Quiz Bot designed to help users study by providing quiz questions. Generate a single, concise quiz question directly related to the topic: "${subject}". The question must be unique and different from these previously asked questions: ${JSON.stringify(askedQuestions)}. Do not include the answer. Respond only with the question text. Example: For topic "Industrial Revolution": "What invention was key to powering factories during the Industrial Revolution?"`;
+
+      try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }]
+          })
+        });
+
+        if (!response.ok) throw new Error('Gemini API request failed');
+
+        const data = await response.json();
+        let question = data.candidates[0].content.parts[0].text.trim();
+        question = question.replace(/\\|\\\`/g, '');
+
+        if (askedQuestions.includes(question)) {
+          await generateNewQuestion();
+          return;
+        }
+
+        askedQuestions.push(question);
+        currentQuestion = question;
+        addMessage(question, 'bot');
+      } catch (error) {
+        console.error('Error with Gemini API:', error);
+        addMessage('Oops, something went wrong. Try again!', 'bot');
+      }
+    }
+
+    async function sendMessage() {
+      const text = chatInput.value.trim();
+      if (!text) return;
+
+      addMessage(text, 'user');
+      chatInput.value = '';
+
+      const lowerText = text.toLowerCase();
+      if (lowerText.includes('stop') || lowerText.includes('end') || lowerText.includes('quit')) {
+        quizActive = false;
+        const scoreMessage = totalQuestions > 0 
+          ? `Quiz stopped! You got ${correctCount} out of ${totalQuestions} correct (${Math.round((correctCount / totalQuestions) * 100)}%). Enter a new topic to start again!`
+          : 'Quiz stopped! No questions answered. Enter a new topic to start again!';
+        addMessage(scoreMessage, 'bot');
+
+        if (totalQuestions > 0 && auth.currentUser) {
+          await saveQuizResult(auth.currentUser.uid, subject, correctCount, totalQuestions);
+        }
+
+        currentQuestion = null;
+        correctCount = 0;
+        totalQuestions = 0;
+        subject = null;
+        askedQuestions = [];
+        return;
+      }
+
+      if (!quizActive) {
+        quizActive = true;
+        subject = text.trim();
+        askedQuestions = [];
+        await generateNewQuestion();
+        return;
+      }
+
+      if (quizActive && currentQuestion) {
+        const prompt = `You are a Quiz Bot. The user was asked this question about the topic "${subject}": "${currentQuestion}". They provided this answer: "${text}". Check if the answer is correct. If correct, respond with "Correct!" If incorrect, respond with "Incorrect. The correct answer is [correct answer]." Keep the response concise and do not ask for another question.`;
+
+        try {
+          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }]
+            })
+          });
+
+          if (!response.ok) throw new Error('Gemini API request failed');
+
+          const data = await response.json();
+          let botResponse = data.candidates[0].content.parts[0].text.trim();
+          botResponse = botResponse.replace(/\\|\\\`/g, '');
+
+          totalQuestions++;
+          if (botResponse.toLowerCase().startsWith('correct')) {
+            correctCount++;
+          }
+
+          addMessage(botResponse, 'bot');
+          await generateNewQuestion();
+        } catch (error) {
+          console.error('Error with Gemini API:', error);
+          addMessage('Oops, something went wrong. Try again!', 'bot');
+          await generateNewQuestion();
+        }
+      }
+    }
+
+    sendButton.addEventListener('click', sendMessage);
+    chatInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') sendMessage();
+    });
+  </script>
+</body>
+</html>

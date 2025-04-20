@@ -1,5 +1,6 @@
 import { db, auth } from './firebase.js';
 import { collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, doc, deleteDoc, getDoc, setDoc, getDocs } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js';
+import { getAuth, signOut } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js';
 
 const urlParams = new URLSearchParams(window.location.search);
 const roomId = urlParams.get('roomId');
@@ -225,14 +226,14 @@ function createPeerConnection(userId) {
       videoGrid.appendChild(remoteVideo);
       videoGrid.appendChild(label);
       remoteVideo.addEventListener('click', () => pinVideo(remoteVideo));
-      getDoc(doc(db, 'users', userId)).then(doc => {
+      getDoc(doc(db, 'rooms', roomId, 'room_members', userId)).then(doc => {
         if (doc.exists()) {
-          label.textContent = doc.data().username || `User_${userId.substring(0, 5)}`;
+          label.textContent = doc.data().userName || `User_${userId.substring(0, 5)}`;
         } else {
-          console.error(`No user document found for userId: ${userId}`);
+          console.error(`No member document found for userId: ${userId}`);
         }
       }).catch(error => {
-        console.error(`Error fetching user document for userId: ${userId}`, error);
+        console.error(`Error fetching member document for userId: ${userId}`, error);
       });
     }
     remoteVideo.srcObject = event.streams[0];
@@ -332,34 +333,20 @@ auth.onAuthStateChanged(async (user) => {
       console.error('Error adding user to the room:', error);
     }
   } else {
-    console.log('User is already a member of this room');
-  }
-
-  // Update all existing members with userName from messages
-  const messagesQuery = query(collection(db, 'rooms', roomId, 'messages'));
-  const messagesSnapshot = await getDocs(messagesQuery);
-  const userNamesFromMessages = new Map();
-  messagesSnapshot.forEach((doc) => {
-    const msg = doc.data();
-    if (msg.userName && msg.userId) {
-      userNamesFromMessages.set(msg.userId, msg.userName);
-    }
-  });
-  const membersSnapshot = await getDocs(roomMembersRef);
-  membersSnapshot.forEach(async (doc) => {
-    const member = doc.data();
-    if (!member.userName && userNamesFromMessages.has(doc.id)) {
+    // Update existing document if userName is missing
+    const data = memberDoc.data();
+    if (!data.userName) {
       try {
-        await setDoc(doc.ref, { userName: userNamesFromMessages.get(doc.id) }, { merge: true });
-        console.log('Updated userName from messages for UID', doc.id);
+        await setDoc(doc(roomMembersRef, user.uid), { userName: user.displayName || `User_${user.uid.substring(0, 5)}` }, { merge: true });
+        console.log('Updated userName for existing member');
       } catch (error) {
-        console.error('Error updating userName from messages:', error);
+        console.error('Error updating userName:', error);
       }
     }
-  });
+  }
 
   // Load participants list
-  onSnapshot(roomMembersRef, (snapshot) => {
+  onSnapshot(query(collection(db, 'rooms', roomId, 'room_members'), orderBy('joinedAt')), (snapshot) => {
     console.log('Participants snapshot triggered, docs:', snapshot.docs.length);
     participantsList.innerHTML = '';
     if (snapshot.empty) {
@@ -374,7 +361,7 @@ auth.onAuthStateChanged(async (user) => {
       participantItem.className = 'participant-item';
       participantItem.innerHTML = `
         <img src="https://www.gravatar.com/avatar/${member.userId}?d=mp" alt="${member.userName || member.userId}" style="width: 30px; height: 30px; border-radius: 50%;">
-        ${member.userName || member.userId || 'Unknown'}
+        ${member.userName || `User_${member.userId.substring(0, 5)}`}
       `;
       participantsList.appendChild(participantItem);
     });

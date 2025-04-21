@@ -1,5 +1,5 @@
 import { db, auth } from './firebase.js';
-import { collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, doc, deleteDoc, getDoc, setDoc, getDocs } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js';
+import { collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, doc, deleteDoc, getDoc, setDoc, getDocs, where, limit } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js';
 import { getAuth, signOut } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js';
 
 const urlParams = new URLSearchParams(window.location.search);
@@ -44,13 +44,7 @@ let isVideoCallActive = false;
 let isVideoEnabled = false;
 let isAudioEnabled = false;
 let pinnedVideo = null;
-let candidateQueue = {};
-const socket = io('https://studybuddy-backend-57xt.onrender.com', {
-  reconnection: true,
-  reconnectionAttempts: 5,
-  reconnectionDelay: 1000,
-  reconnectionDelayMax: 5000,
-});
+const candidateQueue = {};
 
 // Enhanced ICE servers configuration
 const rtcConfig = {
@@ -88,10 +82,8 @@ function debugPeerConnections() {
 setInterval(debugPeerConnections, 10000);
 
 // Initialize UI
-if (elements.chatSection && elements.videoCallSection) {
-  elements.chatSection.style.display = 'block';
-  elements.videoCallSection.style.display = 'none';
-}
+elements.chatSection.style.display = 'block';
+elements.videoCallSection.style.display = 'none';
 
 // Enhanced video grid layout
 function updateVideoGridLayout(participantCount) {
@@ -102,7 +94,7 @@ function updateVideoGridLayout(participantCount) {
 
   console.log(`Updating grid layout for ${participantCount} participants`);
   
-  const columns = Math.min(Math.ceil(Math.sqrt(participantCount)), 3);
+  const columns = Math.min(Math.ceil(Math.sqrt(participantCount)), 4); // Max 4 columns
   const rows = Math.ceil(participantCount / columns);
   
   elements.videoGrid.style.gridTemplateColumns = `repeat(${columns}, 1fr)`;
@@ -157,10 +149,18 @@ async function leaveRoom() {
   try {
     console.log(`User ${userId} leaving room ${roomId}`);
     
+    // Delete room member
     const memberRef = doc(db, 'rooms', roomId, 'room_members', userId);
     await deleteDoc(memberRef);
     
-    socket.emit('leave-room', { roomId, userId });
+    // Clean up signaling data
+    const signalingQuery = query(
+      collection(db, 'rooms', roomId, 'signaling'),
+      where('senderId', '==', userId)
+    );
+    const signalingDocs = await getDocs(signalingQuery);
+    signalingDocs.forEach(async (doc) => await deleteDoc(doc.ref));
+    
     stopVideoCall();
     
     console.log(`User ${userId} successfully left room ${roomId}`);
@@ -171,7 +171,7 @@ async function leaveRoom() {
   }
 }
 
-// Enhanced video call start with comprehensive error handling
+// Enhanced video call start
 async function startVideoCall() {
   if (isVideoCallActive) {
     console.warn('WARNING: startVideoCall called when call is already active');
@@ -205,19 +205,20 @@ async function startVideoCall() {
     localStream = await tryGetUserMedia();
     
     // Setup local video
-    if (elements.localVideo) {
-      elements.localVideo.srcObject = localStream;
-      try {
-        await elements.localVideo.play();
-        console.log('Local video playback started');
-      } catch (error) {
-        console.error('Local video playback error:', error);
-      }
-      
-      // Add click handler for pinning
-      elements.localVideo.addEventListener('click', () => pinVideo(elements.localVideo));
-      
-      // Add label
+    elements.localVideo.srcObject = localStream;
+    try {
+      await elements.localVideo.play();
+      console.log('Local video playback started');
+    } catch (error) {
+      console.error('Local video playback error:', error);
+    }
+    
+    // Add click handler for pinning
+    elements.localVideo.addEventListener('click', () => pinVideo(elements.localVideo));
+    
+    // Add label
+    const existingLabel = elements.localVideo.nextElementSibling;
+    if (!existingLabel || existingLabel.className !== 'video-label') {
       const label = document.createElement('div');
       label.className = 'video-label';
       label.textContent = auth.currentUser.displayName || `You (${auth.currentUser.uid.substring(0, 5)})`;
@@ -228,25 +229,13 @@ async function startVideoCall() {
     isAudioEnabled = true;
     isVideoCallActive = true;
     
-    if (elements.toggleVideoBtn) elements.toggleVideoBtn.textContent = 'Camera Off';
-    if (elements.toggleAudioBtn) elements.toggleAudioBtn.textContent = 'Mic Off';
-    if (elements.leaveCallBtn) elements.leaveCallBtn.disabled = false;
+    elements.toggleVideoBtn.textContent = 'Camera Off';
+    elements.toggleAudioBtn.textContent = 'Mic Off';
+    elements.leaveCallBtn.disabled = false;
 
-    console.log(`Joining WebRTC room: ${roomId}`);
-    socket.emit('join-room', { 
-      roomId, 
-      userId: auth.currentUser.uid 
-    });
-
-    // Enhanced socket event handlers
-    socket.on('user-joined', handleUserJoined);
-    socket.on('offer', handleOffer);
-    socket.on('answer', handleAnswer);
-    socket.on('ice-candidate', handleIceCandidate);
-    socket.on('user-left', handleUserLeft);
-    
-    // Validate existing participants
+    // Validate existing participants and setup signaling
     await validateRoomMembers();
+    setupSignalingListener();
 
     console.log('Video call successfully started');
   } catch (error) {
@@ -294,6 +283,10 @@ function createPeerConnection(userId) {
     
     if (!remoteVideo) {
       console.log(`Creating video element for ${userId}`);
+      const container = document.createElement('div');
+      container.className = 'video-container';
+      container.id = `video-container-${userId}`;
+      
       remoteVideo = document.createElement('video');
       remoteVideo.id = `remote-video-${userId}`;
       remoteVideo.autoplay = true;
@@ -303,17 +296,12 @@ function createPeerConnection(userId) {
       const label = document.createElement('div');
       label.className = 'video-label';
       
-      const container = document.createElement('div');
-      container.className = 'video-container';
-      container.id = `video-container-${userId}`;
       container.appendChild(remoteVideo);
       container.appendChild(label);
       
-      container.addEventListener('click', () => pinVideo(container));
+      container.addEventListener('click', () => pinVideo(remoteVideo));
       
-      if (elements.videoGrid) {
-        elements.videoGrid.appendChild(container);
-      }
+      elements.videoGrid.appendChild(container);
       
       // Get user name from Firestore
       getDoc(doc(db, 'rooms', roomId, 'room_members', userId))
@@ -328,22 +316,33 @@ function createPeerConnection(userId) {
         });
     }
     
-    // Attach stream
-    remoteVideo.srcObject = remoteStream;
-    console.log(`Attached stream to remote video for ${userId}`);
+    // Attach stream with checks
+    if (remoteVideo.srcObject !== remoteStream) {
+      remoteVideo.srcObject = remoteStream;
+      console.log(`Attached stream to remote video for ${userId}`);
+    }
     
-    // Play the video with retries
-    const tryPlay = (attempt = 1) => {
-      remoteVideo.play()
-        .then(() => {
-          console.log(`Successfully playing remote video for ${userId}`);
-        })
-        .catch(error => {
-          console.error(`ERROR playing video (attempt ${attempt}) for ${userId}:`, error);
-          if (attempt < 5) {
-            setTimeout(() => tryPlay(attempt + 1), 500 * attempt);
-          }
-        });
+    // Play the video with retries and checks
+    const tryPlay = async (attempt = 1, maxAttempts = 5) => {
+      if (!remoteVideo.srcObject) {
+        console.error(`No stream attached for ${userId} on attempt ${attempt}`);
+        return;
+      }
+      try {
+        // Wait for video to be ready
+        if (remoteVideo.readyState < 2) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        await remoteVideo.play();
+        console.log(`Successfully playing remote video for ${userId}`);
+      } catch (error) {
+        console.error(`ERROR playing video (attempt ${attempt}) for ${userId}:`, error);
+        if (attempt < maxAttempts && error.name === 'AbortError') {
+          await new Promise(resolve => setTimeout(resolve, 500 * attempt));
+          return tryPlay(attempt + 1, maxAttempts);
+        }
+        console.error(`Failed to play video for ${userId} after ${maxAttempts} attempts`);
+      }
     };
     tryPlay();
     
@@ -353,10 +352,14 @@ function createPeerConnection(userId) {
   pc.onicecandidate = (event) => {
     if (event.candidate) {
       console.log(`Sending ICE candidate to ${userId}`);
-      socket.emit('ice-candidate', { 
-        roomId, 
-        userId, 
-        candidate: event.candidate 
+      addDoc(collection(db, 'rooms', roomId, 'signaling'), {
+        type: 'candidate',
+        senderId: auth.currentUser.uid,
+        receiverId: userId,
+        data: event.candidate,
+        createdAt: serverTimestamp()
+      }).catch(error => {
+        console.error(`ERROR sending ICE candidate to ${userId}:`, error);
       });
     }
   };
@@ -393,16 +396,11 @@ function cleanupPeerConnection(userId) {
     delete peerConnections[userId];
   }
   
-  const videoElement = document.getElementById(`remote-video-${userId}`);
-  if (videoElement) {
-    if (pinnedVideo === videoElement) {
-      pinnedVideo = null;
-    }
-    videoElement.remove();
-  }
-  
   const container = document.getElementById(`video-container-${userId}`);
   if (container) {
+    if (pinnedVideo && pinnedVideo.id === `remote-video-${userId}`) {
+      pinnedVideo = null;
+    }
     container.remove();
   }
   
@@ -428,72 +426,63 @@ function stopVideoCall() {
   });
   
   // Reset UI
-  if (elements.localVideo) {
-    elements.localVideo.srcObject = null;
-    const label = elements.localVideo.nextElementSibling;
-    if (label && label.className === 'video-label') {
-      label.remove();
-    }
+  elements.localVideo.srcObject = null;
+  const label = elements.localVideo.nextElementSibling;
+  if (label && label.className === 'video-label') {
+    label.remove();
   }
   
   isVideoCallActive = false;
   isVideoEnabled = false;
   isAudioEnabled = false;
   
-  if (elements.toggleVideoBtn) elements.toggleVideoBtn.textContent = 'Camera On';
-  if (elements.toggleAudioBtn) elements.toggleAudioBtn.textContent = 'Mic On';
-  if (elements.leaveCallBtn) elements.leaveCallBtn.disabled = true;
-  
-  // Remove socket listeners
-  socket.off('user-joined', handleUserJoined);
-  socket.off('offer', handleOffer);
-  socket.off('answer', handleAnswer);
-  socket.off('ice-candidate', handleIceCandidate);
-  socket.off('user-left', handleUserLeft);
+  elements.toggleVideoBtn.textContent = 'Camera On';
+  elements.toggleAudioBtn.textContent = 'Mic On';
+  elements.leaveCallBtn.disabled = true;
   
   console.log('Video call stopped');
 }
 
-// Socket event handlers
-async function handleUserJoined({ userId }) {
-  console.log(`New user joined: ${userId}`);
+// Setup signaling listener
+function setupSignalingListener() {
+  const signalingQuery = query(
+    collection(db, 'rooms', roomId, 'signaling'),
+    where('receiverId', '==', auth.currentUser.uid),
+    orderBy('createdAt')
+  );
   
-  if (userId === auth.currentUser.uid) {
-    console.warn('Ignoring self join event');
-    return;
-  }
-  
-  if (!peerConnections[userId]) {
-    console.log(`Creating new peer connection for ${userId}`);
-    const { pc, addTracks } = createPeerConnection(userId);
-    peerConnections[userId] = pc;
-    
-    try {
-      console.log(`Creating offer for ${userId}`);
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      addTracks();
-      
-      socket.emit('offer', { 
-        roomId, 
-        userId, 
-        sdp: offer 
-      });
-      
-      console.log(`Offer sent to ${userId}, state: ${pc.signalingState}`);
-    } catch (error) {
-      console.error(`ERROR creating offer for ${userId}:`, error);
-    }
-  }
+  onSnapshot(signalingQuery, (snapshot) => {
+    snapshot.docChanges().forEach(async (change) => {
+      if (change.type === 'added') {
+        const signal = change.doc.data();
+        const senderId = signal.senderId;
+        
+        if (senderId === auth.currentUser.uid) return;
+        
+        try {
+          if (signal.type === 'offer') {
+            await handleOffer({ userId: senderId, sdp: signal.data });
+          } else if (signal.type === 'answer') {
+            await handleAnswer({ userId: senderId, sdp: signal.data });
+          } else if (signal.type === 'candidate') {
+            await handleIceCandidate({ userId: senderId, candidate: signal.data });
+          }
+          
+          // Clean up processed signal
+          await deleteDoc(change.doc.ref);
+        } catch (error) {
+          console.error(`ERROR processing signal from ${senderId}:`, error);
+        }
+      }
+    });
+  }, (error) => {
+    console.error('ERROR in signaling snapshot:', error);
+  });
 }
 
+// Signaling handlers
 async function handleOffer({ userId, sdp }) {
   console.log(`Received offer from ${userId}`);
-  
-  if (userId === auth.currentUser.uid) {
-    console.warn('Ignoring self offer');
-    return;
-  }
   
   let pc;
   if (!peerConnections[userId]) {
@@ -506,22 +495,23 @@ async function handleOffer({ userId, sdp }) {
   }
   
   try {
-    console.log(`Setting remote description for ${userId}`);
     await pc.setRemoteDescription(new RTCSessionDescription(sdp));
     
     console.log(`Creating answer for ${userId}`);
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     
-    socket.emit('answer', { 
-      roomId, 
-      userId, 
-      sdp: answer 
+    await addDoc(collection(db, 'rooms', roomId, 'signaling'), {
+      type: 'answer',
+      senderId: auth.currentUser.uid,
+      receiverId: userId,
+      data: answer,
+      createdAt: serverTimestamp()
     });
     
     console.log(`Answer sent to ${userId}, state: ${pc.signalingState}`);
     
-    // Process any queued ICE candidates
+    // Process queued ICE candidates
     if (candidateQueue[userId]) {
       console.log(`Processing ${candidateQueue[userId].length} queued ICE candidates for ${userId}`);
       for (const candidate of candidateQueue[userId]) {
@@ -537,11 +527,6 @@ async function handleOffer({ userId, sdp }) {
 async function handleAnswer({ userId, sdp }) {
   console.log(`Received answer from ${userId}`);
   
-  if (userId === auth.currentUser.uid) {
-    console.warn('Ignoring self answer');
-    return;
-  }
-  
   const pc = peerConnections[userId];
   if (!pc) {
     console.error(`No peer connection found for ${userId}`);
@@ -549,10 +534,9 @@ async function handleAnswer({ userId, sdp }) {
   }
   
   try {
-    console.log(`Setting remote description for ${userId}`);
     await pc.setRemoteDescription(new RTCSessionDescription(sdp));
     
-    // Process any queued ICE candidates
+    // Process queued ICE candidates
     if (candidateQueue[userId]) {
       console.log(`Processing ${candidateQueue[userId].length} queued ICE candidates for ${userId}`);
       for (const candidate of candidateQueue[userId]) {
@@ -568,11 +552,6 @@ async function handleAnswer({ userId, sdp }) {
 async function handleIceCandidate({ userId, candidate }) {
   console.log(`Received ICE candidate from ${userId}`);
   
-  if (userId === auth.currentUser.uid) {
-    console.warn('Ignoring self ICE candidate');
-    return;
-  }
-  
   const pc = peerConnections[userId];
   if (!pc) {
     console.log(`Queueing ICE candidate for ${userId} (no PC yet)`);
@@ -582,16 +561,10 @@ async function handleIceCandidate({ userId, candidate }) {
   }
   
   try {
-    console.log(`Adding ICE candidate for ${userId}`);
     await pc.addIceCandidate(new RTCIceCandidate(candidate));
   } catch (error) {
     console.error(`ERROR adding ICE candidate for ${userId}:`, error);
   }
-}
-
-function handleUserLeft({ userId }) {
-  console.log(`User left: ${userId}`);
-  cleanupPeerConnection(userId);
 }
 
 // Validate room members
@@ -624,10 +597,12 @@ async function validateRoomMembers() {
           await pc.setLocalDescription(offer);
           addTracks();
           
-          socket.emit('offer', { 
-            roomId, 
-            userId, 
-            sdp: offer 
+          await addDoc(collection(db, 'rooms', roomId, 'signaling'), {
+            type: 'offer',
+            senderId: auth.currentUser.uid,
+            receiverId: userId,
+            data: offer,
+            createdAt: serverTimestamp()
           });
           
           console.log(`Offer sent to existing member ${userId}`);
@@ -657,9 +632,7 @@ function toggleVideo() {
   isVideoEnabled = !isVideoEnabled;
   videoTrack.enabled = isVideoEnabled;
   
-  if (elements.toggleVideoBtn) {
-    elements.toggleVideoBtn.textContent = isVideoEnabled ? 'Camera Off' : 'Camera On';
-  }
+  elements.toggleVideoBtn.textContent = isVideoEnabled ? 'Camera Off' : 'Camera On';
   
   console.log(`Video ${isVideoEnabled ? 'enabled' : 'disabled'}`);
 }
@@ -679,63 +652,39 @@ function toggleAudio() {
   isAudioEnabled = !isAudioEnabled;
   audioTrack.enabled = isAudioEnabled;
   
-  if (elements.toggleAudioBtn) {
-    elements.toggleAudioBtn.textContent = isAudioEnabled ? 'Mic Off' : 'Mic On';
-  }
+  elements.toggleAudioBtn.textContent = isAudioEnabled ? 'Mic Off' : 'Mic On';
   
   console.log(`Audio ${isAudioEnabled ? 'enabled' : 'disabled'}`);
 }
 
 // Event listeners
-if (elements.leaveRoomButton) {
-  elements.leaveRoomButton.addEventListener('click', leaveRoom);
-}
+elements.leaveRoomButton.addEventListener('click', leaveRoom);
 
-if (elements.chatTab) {
-  elements.chatTab.addEventListener('click', () => {
-    if (elements.chatSection && elements.videoCallSection) {
-      elements.chatSection.style.display = 'block';
-      elements.videoCallSection.style.display = 'none';
-      elements.chatTab.classList.add('active');
-      if (elements.videoTab) elements.videoTab.classList.remove('active');
-    }
-  });
-}
+elements.chatTab.addEventListener('click', () => {
+  elements.chatSection.style.display = 'block';
+  elements.videoCallSection.style.display = 'none';
+  elements.chatTab.classList.add('active');
+  elements.videoTab.classList.remove('active');
+});
 
-if (elements.videoTab) {
-  elements.videoTab.addEventListener('click', () => {
-    if (elements.chatSection && elements.videoCallSection) {
-      elements.chatSection.style.display = 'none';
-      elements.videoCallSection.style.display = 'block';
-      elements.videoTab.classList.add('active');
-      if (elements.chatTab) elements.chatTab.classList.remove('active');
-      if (!isVideoCallActive) startVideoCall();
-    }
-  });
-}
+elements.videoTab.addEventListener('click', () => {
+  elements.chatSection.style.display = 'none';
+  elements.videoCallSection.style.display = 'block';
+  elements.videoTab.classList.add('active');
+  elements.chatTab.classList.remove('active');
+  if (!isVideoCallActive) startVideoCall();
+});
 
-if (elements.toggleVideoBtn) {
-  elements.toggleVideoBtn.addEventListener('click', toggleVideo);
-}
+elements.toggleVideoBtn.addEventListener('click', toggleVideo);
+elements.toggleAudioBtn.addEventListener('click', toggleAudio);
+elements.leaveCallBtn.addEventListener('click', stopVideoCall);
 
-if (elements.toggleAudioBtn) {
-  elements.toggleAudioBtn.addEventListener('click', toggleAudio);
-}
-
-if (elements.leaveCallBtn) {
-  elements.leaveCallBtn.addEventListener('click', stopVideoCall);
-}
-
-if (elements.backToChatBtn) {
-  elements.backToChatBtn.addEventListener('click', () => {
-    if (elements.videoCallSection && elements.chatSection) {
-      elements.videoCallSection.style.display = 'none';
-      elements.chatSection.style.display = 'block';
-      if (elements.chatTab) elements.chatTab.classList.add('active');
-      if (elements.videoTab) elements.videoTab.classList.remove('active');
-    }
-  });
-}
+elements.backToChatBtn.addEventListener('click', () => {
+  elements.videoCallSection.style.display = 'none';
+  elements.chatSection.style.display = 'block';
+  elements.chatTab.classList.add('active');
+  elements.videoTab.classList.remove('active');
+});
 
 // Authentication state handler
 auth.onAuthStateChanged(async (user) => {
@@ -807,6 +756,15 @@ function setupParticipantsList() {
       return;
     }
     
+    snapshot.docChanges().forEach(change => {
+      if (change.type === 'removed') {
+        const userId = change.doc.id;
+        if (userId !== auth.currentUser.uid) {
+          cleanupPeerConnection(userId);
+        }
+      }
+    });
+    
     snapshot.forEach((doc) => {
       const member = doc.data();
       const participantItem = document.createElement('li');
@@ -874,14 +832,12 @@ function setupChat() {
   });
   
   // Message sending
-  if (elements.sendMessage && elements.chatInput) {
-    elements.sendMessage.addEventListener('click', sendChatMessage);
-    elements.chatInput.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') {
-        sendChatMessage();
-      }
-    });
-  }
+  elements.sendMessage.addEventListener('click', sendChatMessage);
+  elements.chatInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      sendChatMessage();
+    }
+  });
 }
 
 // Send chat message

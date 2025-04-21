@@ -5,32 +5,36 @@ import { getAuth, signOut } from 'https://www.gstatic.com/firebasejs/11.6.0/fire
 const urlParams = new URLSearchParams(window.location.search);
 const roomId = urlParams.get('roomId');
 if (!roomId) {
-  console.error('No room ID provided');
-  alert('No room ID provided.');
+  console.error('ERROR: No room ID provided in URL parameters');
+  alert('No room ID provided in the URL.');
   window.location.href = './room-list.html';
 }
 
-// DOM elements
-const leaveRoomButton = document.getElementById('leave-room');
-const chatMessages = document.getElementById('chat-messages');
-const chatInput = document.getElementById('chat-input');
-const sendMessage = document.getElementById('send-message');
-const toggleVideoBtn = document.getElementById('toggle-video-btn');
-const toggleAudioBtn = document.getElementById('toggle-audio-btn');
-const leaveCallBtn = document.getElementById('leave-call-btn');
-const videoCallSection = document.getElementById('video-call-section');
-const chatSection = document.getElementById('chat-section');
-const backToChatBtn = document.getElementById('back-to-chat-btn');
-const participantsList = document.getElementById('participants-list');
-const chatTab = document.getElementById('chat-tab');
-const videoTab = document.getElementById('video-tab');
-const videoGrid = document.getElementById('video-grid');
-const localVideo = document.getElementById('local-video');
+// DOM elements with null checks
+const elements = {
+  leaveRoomButton: document.getElementById('leave-room'),
+  chatMessages: document.getElementById('chat-messages'),
+  chatInput: document.getElementById('chat-input'),
+  sendMessage: document.getElementById('send-message'),
+  toggleVideoBtn: document.getElementById('toggle-video-btn'),
+  toggleAudioBtn: document.getElementById('toggle-audio-btn'),
+  leaveCallBtn: document.getElementById('leave-call-btn'),
+  videoCallSection: document.getElementById('video-call-section'),
+  chatSection: document.getElementById('chat-section'),
+  backToChatBtn: document.getElementById('back-to-chat-btn'),
+  participantsList: document.getElementById('participants-list'),
+  chatTab: document.getElementById('chat-tab'),
+  videoTab: document.getElementById('video-tab'),
+  videoGrid: document.getElementById('video-grid'),
+  localVideo: document.getElementById('local-video')
+};
 
-// Validate DOM elements
-const requiredElements = { leaveRoomButton, chatMessages, chatInput, sendMessage, toggleVideoBtn, toggleAudioBtn, leaveCallBtn, videoCallSection, chatSection, backToChatBtn, participantsList, chatTab, videoTab, videoGrid, localVideo };
-for (const [key, element] of Object.entries(requiredElements)) {
-  if (!element) console.error(`DOM element missing: ${key}`);
+// Verify all required elements exist
+for (const [name, element] of Object.entries(elements)) {
+  if (!element) {
+    console.error(`CRITICAL ERROR: Missing required DOM element - ${name}`);
+    alert(`System error: Missing ${name}. Please refresh the page.`);
+  }
 }
 
 // WebRTC variables
@@ -41,7 +45,6 @@ let isVideoEnabled = false;
 let isAudioEnabled = false;
 let pinnedVideo = null;
 let candidateQueue = {};
-let streamAssignmentTimeout = {};
 const socket = io('https://studybuddy-backend-57xt.onrender.com', {
   reconnection: true,
   reconnectionAttempts: 5,
@@ -49,71 +52,100 @@ const socket = io('https://studybuddy-backend-57xt.onrender.com', {
   reconnectionDelayMax: 5000,
 });
 
-// WebRTC configuration
+// Enhanced ICE servers configuration
 const rtcConfig = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
     {
       urls: 'turn:turn.anyfirewall.com:443?transport=tcp',
       username: 'webrtc',
       credential: 'webrtc'
     }
-  ]
+  ],
+  iceCandidatePoolSize: 10
 };
 
-// Initially show only chat
-if (chatSection && videoCallSection) {
-  chatSection.style.display = 'block';
-  videoCallSection.style.display = 'none';
-} else {
-  console.error('chatSection or videoCallSection missing');
+// Debugging function
+function debugPeerConnections() {
+  console.group('Active Peer Connections');
+  Object.entries(peerConnections).forEach(([userId, pc]) => {
+    console.group(`User: ${userId}`);
+    console.log('Connection State:', pc.connectionState);
+    console.log('ICE State:', pc.iceConnectionState);
+    console.log('Signaling State:', pc.signalingState);
+    console.log('Tracks:', {
+      local: pc.getSenders().map(s => s.track?.kind),
+      remote: pc.getReceivers().map(r => r.track?.kind)
+    });
+    console.groupEnd();
+  });
+  console.groupEnd();
 }
 
-// Dynamic video grid layout with debouncing
-let gridUpdateTimeout = null;
+// Set debug interval
+setInterval(debugPeerConnections, 10000);
+
+// Initialize UI
+if (elements.chatSection && elements.videoCallSection) {
+  elements.chatSection.style.display = 'block';
+  elements.videoCallSection.style.display = 'none';
+}
+
+// Enhanced video grid layout
 function updateVideoGridLayout(participantCount) {
-  if (gridUpdateTimeout) clearTimeout(gridUpdateTimeout);
-  gridUpdateTimeout = setTimeout(() => {
-    console.log(`Updating grid for ${participantCount} participants`);
-    if (!videoGrid) {
-      console.error('videoGrid element not found');
-      return;
-    }
-    const columns = Math.min(Math.ceil(Math.sqrt(participantCount)), 3);
-    const rows = Math.ceil(participantCount / columns);
-    videoGrid.style.gridTemplateColumns = `repeat(${columns}, 1fr)`;
-    videoGrid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
-    videoGrid.style.height = `${(80 / rows) * 0.9}vh`;
-    if (pinnedVideo) {
-      videoGrid.style.gridTemplateColumns = '1fr';
-      videoGrid.style.gridTemplateRows = '1fr';
-      videoGrid.style.height = '80vh';
-    }
-  }, 100);
-}
-
-// Pin video
-function pinVideo(videoElement) {
-  if (!videoElement) {
-    console.error('pinVideo: videoElement is null');
+  if (!elements.videoGrid) {
+    console.error('ERROR: videoGrid element not found');
     return;
   }
-  console.log(`Pinning video: ${videoElement.id}`);
+
+  console.log(`Updating grid layout for ${participantCount} participants`);
+  
+  const columns = Math.min(Math.ceil(Math.sqrt(participantCount)), 3);
+  const rows = Math.ceil(participantCount / columns);
+  
+  elements.videoGrid.style.gridTemplateColumns = `repeat(${columns}, 1fr)`;
+  elements.videoGrid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+  elements.videoGrid.style.height = `${(80 / rows) * 0.9}vh`;
+  
+  if (pinnedVideo) {
+    elements.videoGrid.style.gridTemplateColumns = '1fr';
+    elements.videoGrid.style.gridTemplateRows = '1fr';
+    elements.videoGrid.style.height = '80vh';
+  }
+}
+
+// Enhanced pin video function
+function pinVideo(videoElement) {
+  if (!videoElement) {
+    console.error('ERROR: pinVideo called with null videoElement');
+    return;
+  }
+
+  console.log(`Toggling pin for video: ${videoElement.id}`);
+  
   if (pinnedVideo === videoElement) {
     videoElement.classList.remove('pinned');
     pinnedVideo = null;
+    console.log('Video unpinned');
   } else {
-    if (pinnedVideo) pinnedVideo.classList.remove('pinned');
+    if (pinnedVideo) {
+      pinnedVideo.classList.remove('pinned');
+      console.log(`Unpinned previous video: ${pinnedVideo.id}`);
+    }
     videoElement.classList.add('pinned');
     pinnedVideo = videoElement;
+    console.log(`Pinned video: ${videoElement.id}`);
   }
+  
   updateVideoGridLayout(Object.keys(peerConnections).length + 1);
 }
 
-// Function to leave the room
+// Enhanced leave room function
 async function leaveRoom() {
   if (!auth.currentUser) {
-    console.error('No authenticated user');
+    console.error('ERROR: leaveRoom called without authenticated user');
     alert('Please log in to leave the room.');
     return;
   }
@@ -123,644 +155,761 @@ async function leaveRoom() {
 
   const userId = auth.currentUser.uid;
   try {
+    console.log(`User ${userId} leaving room ${roomId}`);
+    
     const memberRef = doc(db, 'rooms', roomId, 'room_members', userId);
     await deleteDoc(memberRef);
+    
     socket.emit('leave-room', { roomId, userId });
     stopVideoCall();
-    alert('You have left the room.');
+    
+    console.log(`User ${userId} successfully left room ${roomId}`);
     window.location.href = './room-list.html';
   } catch (error) {
-    console.error('Error leaving room:', error);
-    alert('Failed to leave room.');
+    console.error('ERROR leaving room:', error);
+    alert('Failed to leave room. Please try again.');
   }
 }
 
-// Initialize WebRTC with retry
+// Enhanced video call start with comprehensive error handling
 async function startVideoCall() {
   if (isVideoCallActive) {
-    console.log('Video call already active');
+    console.warn('WARNING: startVideoCall called when call is already active');
     return;
   }
 
-  const tryGetUserMedia = async (attempt = 1, maxAttempts = 3) => {
-    try {
-      console.log(`Requesting media devices (attempt ${attempt})...`);
-      localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      console.log('Local stream acquired:', localStream);
-      return localStream;
-    } catch (error) {
-      if (attempt < maxAttempts) {
-        console.warn(`Media access failed, retrying (${attempt}/${maxAttempts})...`, error);
-        return tryGetUserMedia(attempt + 1, maxAttempts);
-      }
-      throw error;
-    }
-  };
+  console.log('Attempting to start video call...');
 
   try {
-    await tryGetUserMedia();
-    if (localVideo) {
-      localVideo.srcObject = localStream;
-      localVideo.play().catch(e => console.error('Local video play error:', e));
-    } else {
-      console.error('localVideo element not found');
+    // Media acquisition with retries
+    const tryGetUserMedia = async (attempt = 1, maxAttempts = 3) => {
+      try {
+        console.log(`Attempt ${attempt} to get user media`);
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: true, 
+          audio: true 
+        });
+        
+        console.log('Successfully acquired local media stream');
+        return stream;
+      } catch (error) {
+        console.error(`Attempt ${attempt} failed:`, error);
+        if (attempt < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          return tryGetUserMedia(attempt + 1, maxAttempts);
+        }
+        throw error;
+      }
+    };
+
+    localStream = await tryGetUserMedia();
+    
+    // Setup local video
+    if (elements.localVideo) {
+      elements.localVideo.srcObject = localStream;
+      try {
+        await elements.localVideo.play();
+        console.log('Local video playback started');
+      } catch (error) {
+        console.error('Local video playback error:', error);
+      }
+      
+      // Add click handler for pinning
+      elements.localVideo.addEventListener('click', () => pinVideo(elements.localVideo));
+      
+      // Add label
+      const label = document.createElement('div');
+      label.className = 'video-label';
+      label.textContent = auth.currentUser.displayName || `You (${auth.currentUser.uid.substring(0, 5)})`;
+      elements.localVideo.insertAdjacentElement('afterend', label);
     }
+
     isVideoEnabled = true;
     isAudioEnabled = true;
-    if (toggleVideoBtn) toggleVideoBtn.textContent = 'Camera Off';
-    if (toggleAudioBtn) toggleAudioBtn.textContent = 'Mic Off';
     isVideoCallActive = true;
-    if (leaveCallBtn) leaveCallBtn.disabled = false;
+    
+    if (elements.toggleVideoBtn) elements.toggleVideoBtn.textContent = 'Camera Off';
+    if (elements.toggleAudioBtn) elements.toggleAudioBtn.textContent = 'Mic Off';
+    if (elements.leaveCallBtn) elements.leaveCallBtn.disabled = false;
 
-    if (localVideo) {
-      localVideo.addEventListener('click', () => pinVideo(localVideo));
-      let localLabel = localVideo.nextElementSibling;
-      if (!localLabel || localLabel.className !== 'video-label') {
-        localLabel = document.createElement('div');
-        localLabel.className = 'video-label';
-        localLabel.textContent = auth.currentUser.displayName || `User_${auth.currentUser.uid.substring(0, 5)}`;
-        localVideo.insertAdjacentElement('afterend', localLabel);
-      }
-    }
-
-    console.log(`Emitting join-room: roomId=${roomId}, userId=${auth.currentUser.uid}`);
-    socket.emit('join-room', { roomId, userId: auth.currentUser.uid });
-
-    socket.on('connect', () => {
-      console.log('Socket.IO connected to signaling server');
-      socket.emit('join-room', { roomId, userId: auth.currentUser.uid });
+    console.log(`Joining WebRTC room: ${roomId}`);
+    socket.emit('join-room', { 
+      roomId, 
+      userId: auth.currentUser.uid 
     });
 
-    socket.on('connect_error', (error) => {
-      console.error('Socket.IO connect error:', error);
-      alert('Failed to connect to signaling server. Retrying...');
-    });
-
-    socket.on('reconnect', (attempt) => {
-      console.log(`Socket.IO reconnected after ${attempt} attempts`);
-      socket.emit('join-room', { roomId, userId: auth.currentUser.uid });
-    });
-
-    socket.on('reconnect_failed', () => {
-      console.error('Socket.IO reconnect failed');
-      alert('Failed to reconnect to signaling server. Please refresh the page.');
-      stopVideoCall();
-    });
-
-    socket.on('user-joined', async ({ userId }) => {
-      console.log(`User joined: ${userId}`);
-      if (userId !== auth.currentUser.uid) {
-        let pc = peerConnections[userId];
-        if (!pc) {
-          pc = createPeerConnection(userId);
-          peerConnections[userId] = pc;
-        }
-        if (pc.signalingState === 'stable') {
-          setTimeout(async () => {
-            try {
-              const offer = await pc.createOffer();
-              await pc.setLocalDescription(offer);
-              socket.emit('offer', { roomId, userId, sdp: offer });
-              console.log(`Sent offer to ${userId}, signalingState: ${pc.signalingState}, connectionState: ${pc.connectionState}`);
-            } catch (error) {
-              console.error(`Error creating offer for ${userId}:`, error);
-            }
-          }, 1000);
-        } else {
-          console.log(`Deferring offer to ${userId}: signalingState is ${pc.signalingState}`);
-        }
-        updateVideoGridLayout(Object.keys(peerConnections).length + 1);
-      }
-    });
-
-    socket.on('offer', async ({ userId, sdp }) => {
-      if (userId === auth.currentUser.uid) {
-        console.warn(`Ignoring self-offer from ${userId}`);
-        return;
-      }
-      console.log(`Received offer from ${userId}, state: ${peerConnections[userId]?.signalingState || 'none'}`);
-      let pc = peerConnections[userId];
-      if (!pc) {
-        pc = createPeerConnection(userId);
-        peerConnections[userId] = pc;
-      }
-      const trySetRemoteDescription = async (attempt = 1, maxAttempts = 3) => {
-        if (pc.signalingState === 'have-local-offer') {
-          console.log(`Offer collision for ${userId}, rolling back...`);
-          try {
-            await pc.setLocalDescription(new RTCSessionDescription({ type: 'rollback' }));
-          } catch (error) {
-            console.error(`Rollback error for ${userId}:`, error);
-            return;
-          }
-        }
-        if (pc.signalingState === 'stable') {
-          try {
-            await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            socket.emit('answer', { roomId, userId, sdp: answer });
-            console.log(`Sent answer to ${userId}, signalingState: ${pc.signalingState}, connectionState: ${pc.connectionState}`);
-            if (candidateQueue[userId]) {
-              for (const candidate of candidateQueue[userId]) {
-                await tryAddIceCandidate(pc, candidate, userId);
-              }
-              delete candidateQueue[userId];
-            }
-            updateVideoGridLayout(Object.keys(peerConnections).length + 1);
-          } catch (error) {
-            console.error(`Error processing offer from ${userId}, attempt ${attempt}:`, error);
-            if (attempt < maxAttempts) {
-              setTimeout(() => trySetRemoteDescription(attempt + 1, maxAttempts), 1000);
-            }
-          }
-        } else {
-          console.warn(`Ignoring offer for ${userId}: Invalid state (${pc.signalingState})`);
-        }
-      };
-      trySetRemoteDescription();
-    });
-
-    socket.on('answer', async ({ userId, sdp }) => {
-      if (userId === auth.currentUser.uid) {
-        console.warn(`Ignoring self-answer from ${userId}`);
-        return;
-      }
-      console.log(`Received answer from ${userId}, state: ${peerConnections[userId]?.signalingState || 'none'}`);
-      if (peerConnections[userId]) {
-        const pc = peerConnections[userId];
-        if (pc.signalingState === 'have-local-offer') {
-          const trySetRemoteDescription = async (attempt = 1, maxAttempts = 3) => {
-            try {
-              await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-              console.log(`Set remote description for ${userId}, signalingState: ${pc.signalingState}, connectionState: ${pc.connectionState}`);
-              if (candidateQueue[userId]) {
-                for (const candidate of candidateQueue[userId]) {
-                  await tryAddIceCandidate(pc, candidate, userId);
-                }
-                delete candidateQueue[userId];
-              }
-              updateVideoGridLayout(Object.keys(peerConnections).length + 1);
-            } catch (error) {
-              console.error(`Error processing answer from ${userId}, attempt ${attempt}:`, error);
-              if (attempt < maxAttempts) {
-                setTimeout(() => trySetRemoteDescription(attempt + 1, maxAttempts), 1000);
-              }
-            }
-          };
-          trySetRemoteDescription();
-        } else {
-          console.warn(`Ignoring answer for ${userId}: Invalid state (${pc.signalingState})`);
-        }
-      }
-    });
-
-    async function tryAddIceCandidate(pc, candidate, userId, attempt = 1, maxAttempts = 3) {
-      try {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        console.log(`Added ICE candidate for ${userId}, iceConnectionState: ${pc.iceConnectionState}`);
-      } catch (error) {
-        console.error(`Error adding ICE candidate for ${userId}, attempt ${attempt}:`, error);
-        if (attempt < maxAttempts) {
-          setTimeout(() => tryAddIceCandidate(pc, candidate, userId, attempt + 1, maxAttempts), 1000);
-        }
-      }
-    }
-
-    socket.on('ice-candidate', async ({ userId, candidate }) => {
-      if (userId === auth.currentUser.uid) {
-        console.warn(`Ignoring self ICE candidate from ${userId}`);
-        return;
-      }
-      console.log(`Received ICE candidate from ${userId}`);
-      if (peerConnections[userId]) {
-        const pc = peerConnections[userId];
-        if (pc.remoteDescription && pc.remoteDescription.type) {
-          await tryAddIceCandidate(pc, candidate, userId);
-        } else {
-          candidateQueue[userId] = candidateQueue[userId] || [];
-          candidateQueue[userId].push(candidate);
-          console.log(`Queued ICE candidate for ${userId}`);
-        }
-      }
-    });
-
-    socket.on('user-left', ({ userId }) => {
-      console.log(`User left: ${userId}`);
-      if (peerConnections[userId]) {
-        peerConnections[userId].close();
-        delete peerConnections[userId];
-        const videoElement = document.getElementById(`remote-video-${userId}`);
-        if (videoElement) {
-          if (pinnedVideo === videoElement) pinnedVideo = null;
-          const label = videoElement.nextElementSibling;
-          if (label && label.className === 'video-label') label.remove();
-          videoElement.remove();
-        }
-      }
-      updateVideoGridLayout(Object.keys(peerConnections).length + 1);
-    });
-
+    // Enhanced socket event handlers
+    socket.on('user-joined', handleUserJoined);
+    socket.on('offer', handleOffer);
+    socket.on('answer', handleAnswer);
+    socket.on('ice-candidate', handleIceCandidate);
+    socket.on('user-left', handleUserLeft);
+    
     // Validate existing participants
-    const membersSnapshot = await getDocs(collection(db, 'rooms', roomId, 'room_members'));
-    const validMembers = membersSnapshot.docs.map(doc => doc.id);
-    console.log(`Valid room_members: ${validMembers}`);
-    for (const userId of Object.keys(peerConnections)) {
-      if (!validMembers.includes(userId)) {
-        console.log(`Closing stale peer connection for ${userId}`);
-        peerConnections[userId].close();
-        delete peerConnections[userId];
-        const videoElement = document.getElementById(`remote-video-${userId}`);
-        if (videoElement) {
-          if (pinnedVideo === videoElement) pinnedVideo = null;
-          const label = videoElement.nextElementSibling;
-          if (label && label.className === 'video-label') label.remove();
-          videoElement.remove();
-        }
-      }
-    }
-    for (const memberDoc of membersSnapshot.docs) {
-      const userId = memberDoc.id;
-      if (userId !== auth.currentUser.uid && !peerConnections[userId]) {
-        const pc = createPeerConnection(userId);
-        peerConnections[userId] = pc;
-        if (pc.signalingState === 'stable') {
-          setTimeout(async () => {
-            try {
-              const offer = await pc.createOffer();
-              await pc.setLocalDescription(offer);
-              socket.emit('offer', { roomId, userId, sdp: offer });
-              console.log(`Sent offer to existing user ${userId}, signalingState: ${pc.signalingState}, connectionState: ${pc.connectionState}`);
-            } catch (error) {
-              console.error(`Error creating offer for existing user ${userId}:`, error);
-            }
-          }, 1000);
-        }
-      }
-    }
-    updateVideoGridLayout(Object.keys(peerConnections).length + 1);
+    await validateRoomMembers();
+
+    console.log('Video call successfully started');
   } catch (error) {
-    console.error('Error starting video call:', error);
-    alert('Failed to access camera. Please allow camera access or check device.');
+    console.error('CRITICAL ERROR starting video call:', error);
+    alert(`Failed to start video call: ${error.message}`);
     stopVideoCall();
   }
 }
 
-function stopVideoCall() {
-  if (localStream) {
-    localStream.getTracks().forEach(track => track.stop());
-    localStream = null;
-  }
-  if (localVideo) localVideo.srcObject = null;
-  Object.values(peerConnections).forEach(pc => pc.close());
-  peerConnections = {};
-  if (videoGrid) {
-    while (videoGrid.children.length > 1) {
-      videoGrid.removeChild(videoGrid.lastChild);
-    }
-  }
-  if (localVideo) {
-    const localLabel = localVideo.nextElementSibling;
-    if (localLabel && localLabel.className === 'video-label') localLabel.remove();
-    localVideo.classList.remove('pinned');
-  }
-  pinnedVideo = null;
-  if (toggleVideoBtn) toggleVideoBtn.textContent = 'Camera On';
-  if (toggleAudioBtn) toggleAudioBtn.textContent = 'Mic On';
-  isVideoCallActive = false;
-  isVideoEnabled = false;
-  isAudioEnabled = false;
-  if (leaveCallBtn) leaveCallBtn.disabled = true;
-  if (auth.currentUser) {
-    socket.emit('leave-room', { roomId, userId: auth.currentUser.uid });
-  }
-  updateVideoGridLayout(1);
-}
-
+// Enhanced peer connection creation
 function createPeerConnection(userId) {
+  console.log(`Creating peer connection for ${userId}`);
+  
   const pc = new RTCPeerConnection(rtcConfig);
-  if (localStream) {
-    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-  }
+  
+  // Add local tracks only after negotiation
+  const addTracks = () => {
+    if (!localStream) {
+      console.error('ERROR: No local stream available to add tracks');
+      return;
+    }
+    
+    localStream.getTracks().forEach(track => {
+      try {
+        if (!pc.getSenders().some(s => s.track === track)) {
+          pc.addTrack(track, localStream);
+          console.log(`Added ${track.kind} track to connection for ${userId}`);
+        }
+      } catch (error) {
+        console.error(`ERROR adding ${track.kind} track:`, error);
+      }
+    });
+  };
 
   pc.ontrack = (event) => {
-    console.log(`Received track from ${userId}, streams: ${event.streams.length}, streamId: ${event.streams[0]?.id}`);
+    if (!event.streams || event.streams.length === 0) {
+      console.error('ERROR: ontrack event received with no streams');
+      return;
+    }
+    
+    const remoteStream = event.streams[0];
+    console.log(`Received remote stream from ${userId} with ${remoteStream.getTracks().length} tracks`);
+    
     let remoteVideo = document.getElementById(`remote-video-${userId}`);
-    if (!remoteVideo && videoGrid) {
+    
+    if (!remoteVideo) {
+      console.log(`Creating video element for ${userId}`);
       remoteVideo = document.createElement('video');
       remoteVideo.id = `remote-video-${userId}`;
       remoteVideo.autoplay = true;
-      remoteVideo.playsinline = true;
+      remoteVideo.playsInline = true;
+      remoteVideo.classList.add('remote-video');
+      
       const label = document.createElement('div');
       label.className = 'video-label';
-      label.textContent = 'Unknown';
-      videoGrid.appendChild(remoteVideo);
-      videoGrid.appendChild(label);
-      remoteVideo.addEventListener('click', () => pinVideo(remoteVideo));
-      getDoc(doc(db, 'rooms', roomId, 'room_members', userId)).then(doc => {
-        if (doc.exists()) {
-          label.textContent = doc.data().userName || `User_${userId.substring(0, 5)}`;
-        } else {
-          console.error(`No member document found for userId: ${userId}`);
-        }
-      }).catch(error => {
-        console.error(`Error fetching member document for userId: ${userId}`, error);
-      });
-    }
-    if (remoteVideo) {
-      if (streamAssignmentTimeout[userId]) {
-        clearTimeout(streamAssignmentTimeout[userId]);
+      
+      const container = document.createElement('div');
+      container.className = 'video-container';
+      container.id = `video-container-${userId}`;
+      container.appendChild(remoteVideo);
+      container.appendChild(label);
+      
+      container.addEventListener('click', () => pinVideo(container));
+      
+      if (elements.videoGrid) {
+        elements.videoGrid.appendChild(container);
       }
-      streamAssignmentTimeout[userId] = setTimeout(() => {
-        remoteVideo.srcObject = event.streams[0];
-        console.log(`Attached stream to remote-video-${userId}, srcObject: ${remoteVideo.srcObject}`);
-        const tryPlay = (attempt = 1, maxAttempts = 10, delay = 1000) => {
-          remoteVideo.load();
-          remoteVideo.play().then(() => {
-            console.log(`Remote video for ${userId} playing successfully`);
-          }).catch(e => {
-            console.error(`Remote video play error for ${userId}, attempt ${attempt}:`, e);
-            if (attempt < maxAttempts) {
-              setTimeout(() => tryPlay(attempt + 1, maxAttempts, delay * 1.5), delay);
-            } else {
-              console.error(`Failed to play remote video for ${userId} after ${maxAttempts} attempts`);
-            }
-          });
-        };
-        tryPlay();
-      }, 500);
-    } else {
-      console.error(`remote-video-${userId} not found`);
+      
+      // Get user name from Firestore
+      getDoc(doc(db, 'rooms', roomId, 'room_members', userId))
+        .then(doc => {
+          if (doc.exists()) {
+            label.textContent = doc.data().userName || `User_${userId.substring(0, 5)}`;
+          }
+        })
+        .catch(error => {
+          console.error(`ERROR fetching user info for ${userId}:`, error);
+          label.textContent = `User_${userId.substring(0, 5)}`;
+        });
     }
+    
+    // Attach stream
+    remoteVideo.srcObject = remoteStream;
+    console.log(`Attached stream to remote video for ${userId}`);
+    
+    // Play the video with retries
+    const tryPlay = (attempt = 1) => {
+      remoteVideo.play()
+        .then(() => {
+          console.log(`Successfully playing remote video for ${userId}`);
+        })
+        .catch(error => {
+          console.error(`ERROR playing video (attempt ${attempt}) for ${userId}:`, error);
+          if (attempt < 5) {
+            setTimeout(() => tryPlay(attempt + 1), 500 * attempt);
+          }
+        });
+    };
+    tryPlay();
+    
     updateVideoGridLayout(Object.keys(peerConnections).length + 1);
   };
 
   pc.onicecandidate = (event) => {
     if (event.candidate) {
-      socket.emit('ice-candidate', { roomId, userId, candidate: event.candidate });
-      console.log(`Sent ICE candidate to ${userId}, iceConnectionState: ${pc.iceConnectionState}`);
+      console.log(`Sending ICE candidate to ${userId}`);
+      socket.emit('ice-candidate', { 
+        roomId, 
+        userId, 
+        candidate: event.candidate 
+      });
     }
   };
 
-  pc.onconnectionstatechange = () => {
-    console.log(`Peer ${userId} connection state: ${pc.connectionState}, iceConnectionState: ${pc.iceConnectionState}, signalingState: ${pc.signalingState}`);
-    if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-      pc.close();
-      delete peerConnections[userId];
-      const videoElement = document.getElementById(`remote-video-${userId}`);
-      if (videoElement) {
-        if (pinnedVideo === videoElement) pinnedVideo = null;
-        const label = videoElement.nextElementSibling;
-        if (label && label.className === 'video-label') label.remove();
-        videoElement.remove();
-      }
-      updateVideoGridLayout(Object.keys(peerConnections).length + 1);
+  pc.oniceconnectionstatechange = () => {
+    console.log(`ICE connection state for ${userId}: ${pc.iceConnectionState}`);
+    if (pc.iceConnectionState === 'failed') {
+      console.warn(`ICE failed for ${userId}, restarting ICE`);
+      pc.restartIce();
     }
   };
 
   pc.onsignalingstatechange = () => {
-    console.log(`Peer ${userId} signaling state: ${pc.signalingState}`);
+    console.log(`Signaling state for ${userId}: ${pc.signalingState}`);
   };
 
-  pc.oniceconnectionstatechange = () => {
-    console.log(`Peer ${userId} ICE connection state: ${pc.iceConnectionState}`);
+  pc.onconnectionstatechange = () => {
+    console.log(`Connection state for ${userId}: ${pc.connectionState}`);
+    if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+      console.warn(`Connection failed for ${userId}, cleaning up`);
+      cleanupPeerConnection(userId);
+    }
   };
 
-  return pc;
+  return { pc, addTracks };
 }
 
+// Clean up peer connection
+function cleanupPeerConnection(userId) {
+  console.log(`Cleaning up peer connection for ${userId}`);
+  
+  if (peerConnections[userId]) {
+    peerConnections[userId].pc.close();
+    delete peerConnections[userId];
+  }
+  
+  const videoElement = document.getElementById(`remote-video-${userId}`);
+  if (videoElement) {
+    if (pinnedVideo === videoElement) {
+      pinnedVideo = null;
+    }
+    videoElement.remove();
+  }
+  
+  const container = document.getElementById(`video-container-${userId}`);
+  if (container) {
+    container.remove();
+  }
+  
+  updateVideoGridLayout(Object.keys(peerConnections).length + 1);
+}
+
+// Enhanced stop video call
+function stopVideoCall() {
+  console.log('Stopping video call...');
+  
+  // Stop local stream
+  if (localStream) {
+    localStream.getTracks().forEach(track => {
+      track.stop();
+      console.log(`Stopped ${track.kind} track`);
+    });
+    localStream = null;
+  }
+  
+  // Clean up peer connections
+  Object.keys(peerConnections).forEach(userId => {
+    cleanupPeerConnection(userId);
+  });
+  
+  // Reset UI
+  if (elements.localVideo) {
+    elements.localVideo.srcObject = null;
+    const label = elements.localVideo.nextElementSibling;
+    if (label && label.className === 'video-label') {
+      label.remove();
+    }
+  }
+  
+  isVideoCallActive = false;
+  isVideoEnabled = false;
+  isAudioEnabled = false;
+  
+  if (elements.toggleVideoBtn) elements.toggleVideoBtn.textContent = 'Camera On';
+  if (elements.toggleAudioBtn) elements.toggleAudioBtn.textContent = 'Mic On';
+  if (elements.leaveCallBtn) elements.leaveCallBtn.disabled = true;
+  
+  // Remove socket listeners
+  socket.off('user-joined', handleUserJoined);
+  socket.off('offer', handleOffer);
+  socket.off('answer', handleAnswer);
+  socket.off('ice-candidate', handleIceCandidate);
+  socket.off('user-left', handleUserLeft);
+  
+  console.log('Video call stopped');
+}
+
+// Socket event handlers
+async function handleUserJoined({ userId }) {
+  console.log(`New user joined: ${userId}`);
+  
+  if (userId === auth.currentUser.uid) {
+    console.warn('Ignoring self join event');
+    return;
+  }
+  
+  if (!peerConnections[userId]) {
+    console.log(`Creating new peer connection for ${userId}`);
+    const { pc, addTracks } = createPeerConnection(userId);
+    peerConnections[userId] = pc;
+    
+    try {
+      console.log(`Creating offer for ${userId}`);
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      addTracks();
+      
+      socket.emit('offer', { 
+        roomId, 
+        userId, 
+        sdp: offer 
+      });
+      
+      console.log(`Offer sent to ${userId}, state: ${pc.signalingState}`);
+    } catch (error) {
+      console.error(`ERROR creating offer for ${userId}:`, error);
+    }
+  }
+}
+
+async function handleOffer({ userId, sdp }) {
+  console.log(`Received offer from ${userId}`);
+  
+  if (userId === auth.currentUser.uid) {
+    console.warn('Ignoring self offer');
+    return;
+  }
+  
+  let pc;
+  if (!peerConnections[userId]) {
+    console.log(`Creating new peer connection for ${userId}`);
+    const connection = createPeerConnection(userId);
+    pc = connection.pc;
+    peerConnections[userId] = pc;
+  } else {
+    pc = peerConnections[userId];
+  }
+  
+  try {
+    console.log(`Setting remote description for ${userId}`);
+    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    
+    console.log(`Creating answer for ${userId}`);
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    
+    socket.emit('answer', { 
+      roomId, 
+      userId, 
+      sdp: answer 
+    });
+    
+    console.log(`Answer sent to ${userId}, state: ${pc.signalingState}`);
+    
+    // Process any queued ICE candidates
+    if (candidateQueue[userId]) {
+      console.log(`Processing ${candidateQueue[userId].length} queued ICE candidates for ${userId}`);
+      for (const candidate of candidateQueue[userId]) {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      }
+      delete candidateQueue[userId];
+    }
+  } catch (error) {
+    console.error(`ERROR processing offer from ${userId}:`, error);
+  }
+}
+
+async function handleAnswer({ userId, sdp }) {
+  console.log(`Received answer from ${userId}`);
+  
+  if (userId === auth.currentUser.uid) {
+    console.warn('Ignoring self answer');
+    return;
+  }
+  
+  const pc = peerConnections[userId];
+  if (!pc) {
+    console.error(`No peer connection found for ${userId}`);
+    return;
+  }
+  
+  try {
+    console.log(`Setting remote description for ${userId}`);
+    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    
+    // Process any queued ICE candidates
+    if (candidateQueue[userId]) {
+      console.log(`Processing ${candidateQueue[userId].length} queued ICE candidates for ${userId}`);
+      for (const candidate of candidateQueue[userId]) {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      }
+      delete candidateQueue[userId];
+    }
+  } catch (error) {
+    console.error(`ERROR processing answer from ${userId}:`, error);
+  }
+}
+
+async function handleIceCandidate({ userId, candidate }) {
+  console.log(`Received ICE candidate from ${userId}`);
+  
+  if (userId === auth.currentUser.uid) {
+    console.warn('Ignoring self ICE candidate');
+    return;
+  }
+  
+  const pc = peerConnections[userId];
+  if (!pc) {
+    console.log(`Queueing ICE candidate for ${userId} (no PC yet)`);
+    candidateQueue[userId] = candidateQueue[userId] || [];
+    candidateQueue[userId].push(candidate);
+    return;
+  }
+  
+  try {
+    console.log(`Adding ICE candidate for ${userId}`);
+    await pc.addIceCandidate(new RTCIceCandidate(candidate));
+  } catch (error) {
+    console.error(`ERROR adding ICE candidate for ${userId}:`, error);
+  }
+}
+
+function handleUserLeft({ userId }) {
+  console.log(`User left: ${userId}`);
+  cleanupPeerConnection(userId);
+}
+
+// Validate room members
+async function validateRoomMembers() {
+  try {
+    console.log('Validating room members...');
+    const membersSnapshot = await getDocs(collection(db, 'rooms', roomId, 'room_members'));
+    const validMembers = membersSnapshot.docs.map(doc => doc.id);
+    
+    console.log(`Current valid members: ${validMembers.join(', ')}`);
+    
+    // Clean up stale connections
+    Object.keys(peerConnections).forEach(userId => {
+      if (!validMembers.includes(userId)) {
+        console.log(`Cleaning up stale connection for ${userId}`);
+        cleanupPeerConnection(userId);
+      }
+    });
+    
+    // Create connections for new members
+    for (const memberDoc of membersSnapshot.docs) {
+      const userId = memberDoc.id;
+      if (userId !== auth.currentUser.uid && !peerConnections[userId]) {
+        console.log(`Creating connection for existing member ${userId}`);
+        const { pc, addTracks } = createPeerConnection(userId);
+        peerConnections[userId] = pc;
+        
+        try {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          addTracks();
+          
+          socket.emit('offer', { 
+            roomId, 
+            userId, 
+            sdp: offer 
+          });
+          
+          console.log(`Offer sent to existing member ${userId}`);
+        } catch (error) {
+          console.error(`ERROR creating offer for ${userId}:`, error);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('ERROR validating room members:', error);
+  }
+}
+
+// Media control functions
 function toggleVideo() {
-  if (!localStream) return;
+  if (!localStream) {
+    console.error('ERROR: No local stream to toggle video');
+    return;
+  }
+  
   const videoTrack = localStream.getVideoTracks()[0];
+  if (!videoTrack) {
+    console.error('ERROR: No video track found');
+    return;
+  }
+  
   isVideoEnabled = !isVideoEnabled;
   videoTrack.enabled = isVideoEnabled;
-  if (toggleVideoBtn) toggleVideoBtn.textContent = isVideoEnabled ? 'Camera Off' : 'Camera On';
+  
+  if (elements.toggleVideoBtn) {
+    elements.toggleVideoBtn.textContent = isVideoEnabled ? 'Camera Off' : 'Camera On';
+  }
+  
+  console.log(`Video ${isVideoEnabled ? 'enabled' : 'disabled'}`);
 }
 
 function toggleAudio() {
-  if (!localStream) return;
+  if (!localStream) {
+    console.error('ERROR: No local stream to toggle audio');
+    return;
+  }
+  
   const audioTrack = localStream.getAudioTracks()[0];
+  if (!audioTrack) {
+    console.error('ERROR: No audio track found');
+    return;
+  }
+  
   isAudioEnabled = !isAudioEnabled;
   audioTrack.enabled = isAudioEnabled;
-  if (toggleAudioBtn) toggleAudioBtn.textContent = isAudioEnabled ? 'Mic Off' : 'Mic On';
+  
+  if (elements.toggleAudioBtn) {
+    elements.toggleAudioBtn.textContent = isAudioEnabled ? 'Mic Off' : 'Mic On';
+  }
+  
+  console.log(`Audio ${isAudioEnabled ? 'enabled' : 'disabled'}`);
 }
 
 // Event listeners
-if (leaveRoomButton) leaveRoomButton.addEventListener('click', leaveRoom);
+if (elements.leaveRoomButton) {
+  elements.leaveRoomButton.addEventListener('click', leaveRoom);
+}
 
-if (chatTab) {
-  chatTab.addEventListener('click', () => {
-    if (chatSection && videoCallSection) {
-      chatSection.style.display = 'block';
-      videoCallSection.style.display = 'none';
-      chatTab.classList.add('active');
-      if (videoTab) videoTab.classList.remove('active');
+if (elements.chatTab) {
+  elements.chatTab.addEventListener('click', () => {
+    if (elements.chatSection && elements.videoCallSection) {
+      elements.chatSection.style.display = 'block';
+      elements.videoCallSection.style.display = 'none';
+      elements.chatTab.classList.add('active');
+      if (elements.videoTab) elements.videoTab.classList.remove('active');
     }
   });
 }
 
-if (videoTab) {
-  videoTab.addEventListener('click', () => {
-    if (chatSection && videoCallSection) {
-      chatSection.style.display = 'none';
-      videoCallSection.style.display = 'block';
-      videoTab.classList.add('active');
-      if (chatTab) chatTab.classList.remove('active');
+if (elements.videoTab) {
+  elements.videoTab.addEventListener('click', () => {
+    if (elements.chatSection && elements.videoCallSection) {
+      elements.chatSection.style.display = 'none';
+      elements.videoCallSection.style.display = 'block';
+      elements.videoTab.classList.add('active');
+      if (elements.chatTab) elements.chatTab.classList.remove('active');
       if (!isVideoCallActive) startVideoCall();
     }
   });
 }
 
-if (toggleVideoBtn) toggleVideoBtn.addEventListener('click', toggleVideo);
+if (elements.toggleVideoBtn) {
+  elements.toggleVideoBtn.addEventListener('click', toggleVideo);
+}
 
-if (toggleAudioBtn) toggleAudioBtn.addEventListener('click', toggleAudio);
+if (elements.toggleAudioBtn) {
+  elements.toggleAudioBtn.addEventListener('click', toggleAudio);
+}
 
-if (leaveCallBtn) leaveCallBtn.addEventListener('click', stopVideoCall);
+if (elements.leaveCallBtn) {
+  elements.leaveCallBtn.addEventListener('click', stopVideoCall);
+}
 
-if (backToChatBtn) {
-  backToChatBtn.addEventListener('click', () => {
-    if (videoCallSection && chatSection) {
-      videoCallSection.style.display = 'none';
-      chatSection.style.display = 'block';
-      if (chatTab) chatTab.classList.add('active');
-      if (videoTab) videoTab.classList.remove('active');
+if (elements.backToChatBtn) {
+  elements.backToChatBtn.addEventListener('click', () => {
+    if (elements.videoCallSection && elements.chatSection) {
+      elements.videoCallSection.style.display = 'none';
+      elements.chatSection.style.display = 'block';
+      if (elements.chatTab) elements.chatTab.classList.add('active');
+      if (elements.videoTab) elements.videoTab.classList.remove('active');
     }
   });
 }
 
-// Handle authentication and clean up room_members
+// Authentication state handler
 auth.onAuthStateChanged(async (user) => {
   if (!user) {
-    console.error('No authenticated user');
+    console.error('ERROR: User not authenticated');
     alert('Please log in to access the room.');
     window.location.href = './room-list.html';
     return;
   }
 
-  const roomMembersRef = collection(db, 'rooms', roomId, 'room_members');
+  console.log(`User authenticated: ${user.uid}`);
+  
   try {
-    console.log('Accessing room_members for user:', user.uid);
-    // Clean up duplicates
+    // Initialize room membership
+    const roomMembersRef = collection(db, 'rooms', roomId, 'room_members');
+    const memberRef = doc(roomMembersRef, user.uid);
+    
+    // Clean up any duplicate memberships
     const membersSnapshot = await getDocs(roomMembersRef);
     const currentUserDocs = membersSnapshot.docs.filter(doc => doc.id === user.uid);
-    console.log(`Found room_members: ${membersSnapshot.docs.map(doc => doc.id)}`);
+    
     if (currentUserDocs.length > 1) {
-      console.warn(`Found ${currentUserDocs.length} duplicate room_members for ${user.uid}, cleaning up...`);
+      console.warn(`Found ${currentUserDocs.length} duplicate memberships, cleaning up...`);
       for (let i = 1; i < currentUserDocs.length; i++) {
         await deleteDoc(currentUserDocs[i].ref);
-        console.log(`Deleted duplicate room_member: ${currentUserDocs[i].id}`);
       }
     }
-    // Delete stale members not in active sessions
-    const validUids = [user.uid]; // Add other valid UIDs from active sessions
-    for (const doc of membersSnapshot.docs) {
-      if (!validUids.includes(doc.id)) {
-        console.log(`Deleting stale room_member: ${doc.id}`);
-        await deleteDoc(doc.ref);
-      }
-    }
-
-    const memberDoc = await getDoc(doc(roomMembersRef, user.uid));
-    if (!memberDoc.exists()) {
-      console.log('Creating member document for:', user.uid);
-      await setDoc(doc(roomMembersRef, user.uid), {
-        userId: user.uid,
-        userName: user.displayName || `User_${user.uid.substring(0, 5)}`,
-        joinedAt: serverTimestamp(),
-      });
-    } else {
-      const data = memberDoc.data();
-      if (!data.userName) {
-        console.log('Updating userName for:', user.uid);
-        await setDoc(doc(roomMembersRef, user.uid), {
-          userName: user.displayName || `User_${user.uid.substring(0, 5)}`
-        }, { merge: true });
-      }
-    }
+    
+    // Create or update membership
+    await setDoc(memberRef, {
+      userId: user.uid,
+      userName: user.displayName || `User_${user.uid.substring(0, 5)}`,
+      joinedAt: serverTimestamp()
+    }, { merge: true });
+    
+    console.log('Room membership initialized');
+    
+    // Load participants list
+    setupParticipantsList();
+    
+    // Load chat messages
+    setupChat();
+    
   } catch (error) {
-    console.error('Error managing room member:', error);
-    alert('Failed to join room. Check permissions or try again.');
-  }
-
-  // Load participants list
-  if (participantsList) {
-    onSnapshot(query(collection(db, 'rooms', roomId, 'room_members'), orderBy('joinedAt')), (snapshot) => {
-      console.log('Participants:', snapshot.docs.map(doc => doc.data()));
-      participantsList.innerHTML = '';
-      if (snapshot.empty) {
-        participantsList.innerHTML = '<li>No participants yet.</li>';
-        return;
-      }
-      const participantCount = snapshot.docs.length;
-      if (participantCount > 2) {
-        console.warn(`Unexpected participant count: ${participantCount}, expected <= 2`);
-      }
-      snapshot.forEach((doc) => {
-        const member = doc.data();
-        const participantItem = document.createElement('li');
-        participantItem.className = 'participant-item';
-        participantItem.innerHTML = `
-          <img src="https://www.gravatar.com/avatar/${member.userId}?d=mp" alt="${member.userName || member.userId}" style="width: 30px; height: 30px; border-radius: 50%;">
-          ${member.userName || `User_${member.userId.substring(0, 5)}`}
-        `;
-        participantsList.appendChild(participantItem);
-      });
-      updateVideoGridLayout(Object.keys(peerConnections).length + 1);
-    }, (error) => {
-      console.error('Error in participants snapshot:', error);
-    });
-  }
-
-  // Load chat messages
-  function loadMessages() {
-    if (!chatMessages) {
-      console.error('chat-messages element not found, retrying...');
-      setTimeout(loadMessages, 100);
-      return;
-    }
-    chatMessages.style.overflowY = 'auto';
-    const messagesQuery = query(collection(db, 'rooms', roomId, 'messages'), orderBy('createdAt', 'asc'));
-    onSnapshot(messagesQuery, (snapshot) => {
-      console.log('Messages snapshot received, docs:', snapshot.docs.length);
-      chatMessages.innerHTML = '';
-      if (snapshot.empty) {
-        chatMessages.innerHTML = '<p class="text-gray-500">No messages yet.</p>';
-        return;
-      }
-      snapshot.forEach((doc) => {
-        const msg = doc.data();
-        const msgContainer = document.createElement('div');
-        const isCurrentUser = msg.userId === user.uid;
-        msgContainer.className = 'flex flex-col mb-2 ' + (isCurrentUser ? 'items-end' : 'items-start');
-        msgContainer.innerHTML = `
-          <div class="max-w-xs p-2 rounded-lg ${isCurrentUser ? 'bg-green-300' : 'bg-gray-200'}">
-            <div class="text-xs font-bold mb-1 ${isCurrentUser ? 'text-right' : 'text-left'}">${msg.userName}:</div>
-            <div class="text-sm">${msg.text}</div>
-          </div>
-        `;
-        chatMessages.appendChild(msgContainer);
-      });
-      chatMessages.scrollTop = chatMessages.scrollHeight;
-      setTimeout(() => {
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-      }, 10);
-    }, (error) => {
-      console.error('Error in messages snapshot:', error);
-      chatMessages.innerHTML = '<p class="text-red-500">Failed to load messages.</p>';
-    });
-  }
-  loadMessages();
-
-  // Sending message
-  if (sendMessage && chatInput) {
-    sendMessage.addEventListener('click', async () => {
-      const text = chatInput.value.trim();
-      if (!text) return;
-      try {
-        console.log('Sending message:', text);
-        await addDoc(collection(db, 'rooms', roomId, 'messages'), {
-          text,
-          userName: user.displayName || `User_${user.uid.substring(0, 5)}`,
-          userId: user.uid,
-          createdAt: serverTimestamp(),
-        });
-        chatInput.value = '';
-      } catch (error) {
-        console.error('Error sending message:', error);
-        alert('Failed to send message. Please try again.');
-      }
-    });
-    chatInput.addEventListener('keydown', async (event) => {
-      if (event.key === 'Enter') {
-        const text = chatInput.value.trim();
-        if (!text) return;
-        try {
-          console.log('Sending message:', text);
-          await addDoc(collection(db, 'rooms', roomId, 'messages'), {
-            text,
-            userName: user.displayName || `User_${user.uid.substring(0, 5)}`,
-            userId: user.uid,
-            createdAt: serverTimestamp(),
-          });
-          chatInput.value = '';
-        } catch (error) {
-          console.error('Error sending message:', error);
-          alert('Failed to send message. Please try again.');
-        }
-      }
-    });
-  } else {
-    console.error('sendMessage or chatInput missing');
-  }
-
-  // Add label to local video
-  if (localVideo) {
-    const existingLabel = localVideo.nextElementSibling;
-    if (!existingLabel || existingLabel.className !== 'video-label') {
-      const localLabel = document.createElement('div');
-      localLabel.className = 'video-label';
-      localLabel.textContent = user.displayName || `User_${user.uid.substring(0, 5)}`;
-      localVideo.insertAdjacentElement('afterend', localLabel);
-    }
+    console.error('ERROR initializing room membership:', error);
+    alert('Failed to join room. Please try again.');
   }
 });
+
+// Setup participants list
+function setupParticipantsList() {
+  if (!elements.participantsList) {
+    console.error('ERROR: participantsList element missing');
+    return;
+  }
+  
+  const participantsQuery = query(
+    collection(db, 'rooms', roomId, 'room_members'),
+    orderBy('joinedAt')
+  );
+  
+  onSnapshot(participantsQuery, (snapshot) => {
+    console.log(`Participants update: ${snapshot.docs.length} members`);
+    
+    elements.participantsList.innerHTML = '';
+    
+    if (snapshot.empty) {
+      elements.participantsList.innerHTML = '<li>No participants yet.</li>';
+      return;
+    }
+    
+    snapshot.forEach((doc) => {
+      const member = doc.data();
+      const participantItem = document.createElement('li');
+      participantItem.className = 'participant-item';
+      participantItem.innerHTML = `
+        <img src="https://www.gravatar.com/avatar/${member.userId}?d=mp" 
+             alt="${member.userName || member.userId}" 
+             style="width: 30px; height: 30px; border-radius: 50%;">
+        ${member.userName || `User_${member.userId.substring(0, 5)}`}
+      `;
+      elements.participantsList.appendChild(participantItem);
+    });
+    
+    updateVideoGridLayout(Object.keys(peerConnections).length + 1);
+  }, (error) => {
+    console.error('ERROR in participants snapshot:', error);
+  });
+}
+
+// Setup chat functionality
+function setupChat() {
+  if (!elements.chatMessages) {
+    console.error('ERROR: chatMessages element missing');
+    return;
+  }
+  
+  const messagesQuery = query(
+    collection(db, 'rooms', roomId, 'messages'),
+    orderBy('createdAt', 'asc')
+  );
+  
+  onSnapshot(messagesQuery, (snapshot) => {
+    console.log(`New chat messages: ${snapshot.docs.length}`);
+    
+    elements.chatMessages.innerHTML = '';
+    
+    if (snapshot.empty) {
+      elements.chatMessages.innerHTML = '<p class="text-gray-500">No messages yet.</p>';
+      return;
+    }
+    
+    snapshot.forEach((doc) => {
+      const msg = doc.data();
+      const isCurrentUser = msg.userId === auth.currentUser?.uid;
+      
+      const msgContainer = document.createElement('div');
+      msgContainer.className = `flex flex-col mb-2 ${isCurrentUser ? 'items-end' : 'items-start'}`;
+      
+      msgContainer.innerHTML = `
+        <div class="max-w-xs p-2 rounded-lg ${isCurrentUser ? 'bg-green-300' : 'bg-gray-200'}">
+          <div class="text-xs font-bold mb-1 ${isCurrentUser ? 'text-right' : 'text-left'}">
+            ${msg.userName}:
+          </div>
+          <div class="text-sm">${msg.text}</div>
+        </div>
+      `;
+      
+      elements.chatMessages.appendChild(msgContainer);
+    });
+    
+    elements.chatMessages.scrollTop = elements.chatMessages.scrollHeight;
+  }, (error) => {
+    console.error('ERROR in messages snapshot:', error);
+    elements.chatMessages.innerHTML = '<p class="text-red-500">Failed to load messages.</p>';
+  });
+  
+  // Message sending
+  if (elements.sendMessage && elements.chatInput) {
+    elements.sendMessage.addEventListener('click', sendChatMessage);
+    elements.chatInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        sendChatMessage();
+      }
+    });
+  }
+}
+
+// Send chat message
+async function sendChatMessage() {
+  if (!auth.currentUser) {
+    console.error('ERROR: sendChatMessage called without authenticated user');
+    return;
+  }
+  
+  const text = elements.chatInput?.value.trim();
+  if (!text) {
+    console.warn('WARNING: Attempt to send empty message');
+    return;
+  }
+  
+  try {
+    console.log(`Sending message: "${text}"`);
+    
+    await addDoc(collection(db, 'rooms', roomId, 'messages'), {
+      text,
+      userName: auth.currentUser.displayName || `User_${auth.currentUser.uid.substring(0, 5)}`,
+      userId: auth.currentUser.uid,
+      createdAt: serverTimestamp()
+    });
+    
+    elements.chatInput.value = '';
+  } catch (error) {
+    console.error('ERROR sending message:', error);
+    alert('Failed to send message. Please try again.');
+  }
+}

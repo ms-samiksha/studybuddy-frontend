@@ -69,56 +69,63 @@ document.addEventListener('DOMContentLoaded', () => {
   if (roomList) {
     async function renderUserRooms() {
       roomList.innerHTML = '<p class="text-center text-gray-500">Loading rooms...</p>';
-
+   
       if (!auth.currentUser) {
         roomList.innerHTML = '<p class="text-center text-gray-500">Please log in to see rooms.</p>';
         return;
       }
-
+   
       const userId = auth.currentUser.uid;
       const q = query(collection(db, 'rooms'), orderBy('createdAt', 'desc'));
       const querySnapshot = await getDocs(q);
-
+   
       roomList.innerHTML = '';
       let hasRoom = false;
-
-      // Fetch rooms where the user is a member
-      for (const roomDoc of querySnapshot.docs) {
+   
+      const roomChecks = querySnapshot.docs.map(async (roomDoc) => {
         const memberRef = doc(db, 'rooms', roomDoc.id, 'room_members', userId);
         const memberDoc = await getDoc(memberRef);
-
-        // Only show rooms where the user is a member
-        if (!memberDoc.exists()) continue;
-
-        hasRoom = true;
+        
+        if (!memberDoc.exists()) return null;
+        
         const room = roomDoc.data();
-
-        const roomItem = document.createElement('div');
-        roomItem.className = 'room-item';
-        roomItem.innerHTML = `
-          <span>${room.name} (ID: ${roomDoc.id})</span>
-          <div class="buttons">
-            <!-- View Button -->
-            <a href="./room.html?roomId=${encodeURIComponent(roomDoc.id)}" 
-               class="bg-[#7e5bef] hover:bg-[#5b21b6] text-white px-3 py-1 rounded-lg">
-              View
-            </a>
-
-            <!-- Leave Button -->
-            <button class="leave-room bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-lg" 
-                    data-room-id="${roomDoc.id}">
-              Leave
-            </button>
-          </div>
-        `;
-
-        roomList.appendChild(roomItem);
-      }
-
-      if (!hasRoom) {
+        return {
+          roomId: roomDoc.id,
+          roomName: room.name,
+        };
+      });
+   
+      // Run all checks in parallel
+      const rooms = await Promise.all(roomChecks);
+   
+      // Filter out any null results (where the user isn't a member)
+      const userRooms = rooms.filter(room => room !== null);
+   
+      if (userRooms.length === 0) {
         roomList.innerHTML = '<p class="text-center text-gray-500">You have not joined any rooms yet.</p>';
-      }
+      } else {
+        userRooms.forEach(room => {
+          const roomItem = document.createElement('div');
+          roomItem.className = 'room-item';
+          roomItem.innerHTML = `
+            <span>${room.roomName} (ID: ${room.roomId})</span>
+            <div class="buttons">
+              <a href="./room.html?roomId=${encodeURIComponent(room.roomId)}" 
+   class="bg-[#9B7EBD] hover:bg-[#3B1E54] text-white px-3 py-1 rounded-lg">
+   View
+</a>
 
+   
+              <button class="leave-room bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-lg" 
+                      data-room-id="${room.roomId}">
+                Leave
+              </button>
+            </div>
+          `;
+          roomList.appendChild(roomItem);
+        });
+      }
+   
       // Bind leave buttons
       document.querySelectorAll('.leave-room').forEach(button => {
         button.addEventListener('click', () => {
@@ -127,6 +134,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       });
     }
+   
 
     auth.onAuthStateChanged(() => {
       renderUserRooms();
@@ -156,7 +164,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
           await setDoc(memberRef, { joinedAt: serverTimestamp() });
-          alert(`Successfully joined room ${roomId}`);
+          //alert(`Successfully joined room ${roomId}`);
           roomIdInput.value = '';
           renderUserRooms();
         } catch (error) {

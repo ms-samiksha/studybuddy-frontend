@@ -39,19 +39,22 @@
       flex-direction: column;
       min-height: 100vh;
     }
+
     .dashboard-card {
       background: rgba(255, 255, 255, 0.773);
       padding: 30px;
       border-radius: 16px;
       box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
     }
+
     footer {
       background-color: #3B1E54;
-      color: white;
+      color:white;
       text-align: center;
       padding: 20px;
       font-size: 0.875rem;
     }
+
     .todo-container {
       position: fixed;
       bottom: 20px;
@@ -63,15 +66,18 @@
       width: 250px;
       z-index: 1000;
     }
+
     .todo-item {
       display: flex;
       justify-content: space-between;
       align-items: center;
       padding: 5px 0;
     }
+
     .todo-item input[type="checkbox"] {
       margin-right: 10px;
     }
+
     .content {
       flex-grow: 1;
       display: flex;
@@ -84,12 +90,14 @@
   <div class="content">
     <div class="dashboard-card w-full max-w-md mx-auto">
       <h2 class="text-3xl font-bold text-[#433878] text-center mb-8">Welcome!</h2>
+      <!--<span id="username" class="block text-center text-gray-700 mb-4"></span>-->
       <div class="flex flex-col gap-4">
         <a href="ai-bots.html" class="bg-[#3B1E54] hover:bg-[#6f54aa] text-white px-8 py-3 rounded-lg shadow-lg transition transform hover:scale-105 text-center">⤷AI Study Bot</a>
         <a href="study-rooms.html" class="bg-[#9B7EBD] hover:bg-[#6f54aa] text-white px-8 py-3 rounded-lg shadow-lg transition transform hover:scale-105 text-center">⤷Study Rooms</a>
         <a href="progress.html" class="bg-[#c7abdc] hover:bg-[#6f54aa] text-white px-8 py-3 rounded-lg shadow-lg transition transform hover:scale-105 text-center">⤷Progress Tracker</a>
-        <button id="logoutButton" class="bg-[#000000] hover:bg-[#6f54aa] text-white px-8 py-3 rounded-lg shadow-lg transition transform hover:scale-105">Logout</button>
+        <button id="logoutButton" class="bg-[#000000] hover:bg-[#6f54aa] text-white px-8 py-3 rounded-lg shadow-lg transition transform hover:scale-105"> Logout</button>
       </div>
+      
     </div>
   </div>
 
@@ -99,26 +107,34 @@
     <input id="todo-input" type="text" placeholder="Add a task..." class="w-full p-2 border rounded-lg mt-2" />
     <button id="add-todo-button" class="bg-[#9B7EBD] hover:bg-[#c9afd9] text-black px-4 py-1 rounded-lg mt-2 w-full">Add</button>
   </div>
+  
 
   <footer>
     © 2025 SYNCORA. Crafted to empower your study journey.
   </footer>
 
-  <!-- Firebase and app scripts -->
+  <!-- Firebase initialization script (firebase.js file) -->
   <script type="module" src="./firebase.js"></script>
   <script type="module">
     import { auth, signOut } from './firebase.js';
     import { initTodoList } from './todo.js';
-    import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js';
 
-    onAuthStateChanged(auth, async (user) => {
+    // Initialize to-do list
+    initTodoList('todo-container', 'todo-list', 'todo-input', 'add-todo-button', 'username');
+
+    // Check user authentication
+    import { onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js';
+    onAuthStateChanged(auth, (user) => {
       if (user) {
-        initTodoList('todo-container', 'todo-list', 'todo-input', 'add-todo-button', user.uid);
+        // User is signed in, show the username
+        document.getElementById('username').innerText = user.displayName || 'User';
       } else {
+        // No user is signed in, redirect to login page
         window.location.href = 'login.html';
       }
     });
 
+    // Logout
     document.getElementById('logoutButton').addEventListener('click', async () => {
       try {
         await signOut(auth);
